@@ -23,7 +23,7 @@ import { config } from '@/config';
 
 const mockBackend = new MockBackend();
 
-interface InferenceState {
+export interface InferenceState {
   result: InferenceResult | null;
   latencyMs: number;
   frameNumber: number;
@@ -44,9 +44,11 @@ export function useInference(): InferenceState {
   const stateRef = useRef<InferenceState>(INITIAL); // sync read inside closure
 
   // Mirror key state to Zustand for TopBar / StatusBar reads
-  const setMockMode       = useAppStore(s => s.setMockMode);
+  const setMockMode         = useAppStore(s => s.setMockMode);
   const setConnectionStatus = useAppStore(s => s.setConnectionStatus);
-  const updateMetrics     = useAppStore(s => s.updateMetrics);
+  const updateMetrics       = useAppStore(s => s.updateMetrics);
+  // Writes currentResult so InfoPanel and other store consumers update
+  const setResult           = useAppStore(s => s.setResult);
 
   useEffect(() => {
     const restBackend = new RESTBackend(
@@ -73,10 +75,13 @@ export function useInference(): InferenceState {
       } else {
         setConnectionStatus('mock');
         setMockMode(true);
+        // REST is down — don't wait for the next interval, kick off a tick now
+        void tick();
       }
     }).catch(() => {
       setConnectionStatus('mock');
       setMockMode(true);
+      void tick();
     });
 
     // ── Inference tick ────────────────────────────────────────────────────────
@@ -97,10 +102,20 @@ export function useInference(): InferenceState {
       const source = document.querySelector<HTMLVideoElement | HTMLCanvasElement>(
         '#fast-assist-video'
       );
-      if (!source) { droppedFrames++; return; }
+      if (!source) {
+        droppedFrames++;
+        // Video DOM not ready yet — retry sooner than the full interval
+        setTimeout(() => { if (running) void tick(); }, 300);
+        return;
+      }
 
       const frameData = captureFrame(source);
-      if (!frameData) { droppedFrames++; return; }
+      if (!frameData) {
+        droppedFrames++;
+        // Video element present but not playable yet — retry sooner
+        setTimeout(() => { if (running) void tick(); }, 300);
+        return;
+      }
 
       frameNumber++;
       const t0 = performance.now();
@@ -122,6 +137,9 @@ export function useInference(): InferenceState {
         };
         stateRef.current = next;
         setState(next);
+
+        // Write result to Zustand so other store consumers see it
+        setResult(result, smoothedMs);
 
         // Mirror to Zustand for sidebar components
         updateMetrics({ inferenceLatency: smoothedMs, frameNumber });
@@ -156,7 +174,7 @@ export function useInference(): InferenceState {
       clearInterval(id);
     };
   // Stable dependencies only — run once per mount
-  }, [setMockMode, setConnectionStatus, updateMetrics]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setMockMode, setConnectionStatus, updateMetrics, setResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return state;
 }

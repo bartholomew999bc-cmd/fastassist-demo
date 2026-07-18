@@ -22,14 +22,21 @@ import { ConfidenceBar } from '@/components/ui/ConfidenceBar';
 import { Badge } from '@/components/ui/Badge';
 import { StatusDot } from '@/components/ui/StatusDot';
 import { formatLatency } from '@/utils/smoothing';
+import type { InferenceState } from '@/hooks/useInference';
 
-export function InfoPanel() {
-  const currentResult    = useAppStore(s => s.currentResult);
-  const connectionStatus = useAppStore(s => s.connectionStatus);
-  const isMockMode       = useAppStore(s => s.isMockMode);
-  const metrics          = useAppStore(s => s.metrics);
+interface Props {
+  inference: InferenceState;
+}
+
+export function InfoPanel({ inference }: Props) {
+  // Live inference data comes directly via prop (avoids Zustand subscription latency)
+  const currentResult = inference.result;
+  const isMockMode    = inference.isMock;
+
+  // Static / slowly-changing config from the store
+  const connectionStatus  = useAppStore(s => s.connectionStatus);
   const inferenceInterval = useAppStore(s => s.inferenceInterval);
-  const videoPath        = useAppStore(s => s.videoPath);
+  const videoPath         = useAppStore(s => s.videoPath);
 
   return (
     <aside className="flex flex-col gap-3 h-full overflow-y-auto pr-0.5">
@@ -133,10 +140,10 @@ export function InfoPanel() {
               Running in demo mode — AI endpoint not reachable
             </p>
           )}
-          {metrics.inferenceLatency > 0 && (
+          {inference.latencyMs > 0 && (
             <InfoRow label="Latency">
               <span className="value tabular-nums text-teal-300">
-                {formatLatency(metrics.inferenceLatency)}
+                {formatLatency(inference.latencyMs)}
               </span>
             </InfoRow>
           )}
@@ -161,12 +168,12 @@ export function InfoPanel() {
       <PanelCard icon={<RiHashtag size={13} />} title="Frame">
         <InfoRow label="Number">
           <motion.span
-            key={metrics.frameNumber}
+            key={inference.frameNumber}
             initial={{ opacity: 0.4 }}
             animate={{ opacity: 1 }}
             className="value tabular-nums font-mono"
           >
-            {metrics.frameNumber}
+            {inference.frameNumber}
           </motion.span>
         </InfoRow>
       </PanelCard>
