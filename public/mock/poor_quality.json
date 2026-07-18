@@ -1,0 +1,14 @@
+{
+  "timestamp": 0,
+  "scan_view": "RUQ",
+  "confidence": 0.51,
+  "structures": ["Liver"],
+  "quality": {
+    "overall": 0.42,
+    "motion": "Motion artifact",
+    "gain": "Too low",
+    "depth": "Too shallow"
+  },
+  "guidance": "Poor image quality. Increase gain and depth. Reposition probe for better contact.",
+  "backend_latency": 211
+}

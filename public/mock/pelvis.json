@@ -1,0 +1,14 @@
+{
+  "timestamp": 0,
+  "scan_view": "Pelvis",
+  "confidence": 0.87,
+  "structures": ["Bladder", "Uterus", "Pouch of Douglas"],
+  "quality": {
+    "overall": 0.82,
+    "motion": "Stable",
+    "gain": "Too high",
+    "depth": "Optimal"
+  },
+  "guidance": "Reduce gain slightly. Ensure full bladder for optimal acoustic window.",
+  "backend_latency": 105
+}

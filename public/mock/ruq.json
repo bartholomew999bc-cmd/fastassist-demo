@@ -1,0 +1,14 @@
+{
+  "timestamp": 0,
+  "scan_view": "RUQ",
+  "confidence": 0.94,
+  "structures": ["Liver", "Kidney", "Diaphragm", "Morison's Pouch"],
+  "quality": {
+    "overall": 0.91,
+    "motion": "Stable",
+    "gain": "Adequate",
+    "depth": "Optimal"
+  },
+  "guidance": "Excellent acoustic window. Hold probe steady and fan through the view.",
+  "backend_latency": 122
+}

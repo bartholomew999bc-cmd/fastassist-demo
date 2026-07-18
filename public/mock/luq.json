@@ -1,0 +1,14 @@
+{
+  "timestamp": 0,
+  "scan_view": "LUQ",
+  "confidence": 0.89,
+  "structures": ["Spleen", "Kidney", "Diaphragm", "Splenorenal Space"],
+  "quality": {
+    "overall": 0.86,
+    "motion": "Minor motion",
+    "gain": "Adequate",
+    "depth": "Optimal"
+  },
+  "guidance": "Slight respiratory motion detected. Ask patient to hold breath briefly.",
+  "backend_latency": 98
+}

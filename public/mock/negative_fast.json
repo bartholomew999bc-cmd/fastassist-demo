@@ -1,0 +1,14 @@
+{
+  "timestamp": 0,
+  "scan_view": "RUQ",
+  "confidence": 0.96,
+  "structures": ["Liver", "Kidney", "Diaphragm"],
+  "quality": {
+    "overall": 0.94,
+    "motion": "Stable",
+    "gain": "Adequate",
+    "depth": "Optimal"
+  },
+  "guidance": "No free fluid detected in Morison's Pouch. Proceed to LUQ view.",
+  "backend_latency": 77
+}

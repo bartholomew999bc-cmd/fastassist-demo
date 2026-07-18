@@ -1,0 +1,14 @@
+{
+  "timestamp": 0,
+  "scan_view": "RUQ",
+  "confidence": 0.97,
+  "structures": ["Liver", "Kidney", "Free Fluid", "Morison's Pouch"],
+  "quality": {
+    "overall": 0.93,
+    "motion": "Stable",
+    "gain": "Adequate",
+    "depth": "Optimal"
+  },
+  "guidance": "ALERT: Free fluid identified in Morison's Pouch. Confirm with additional views.",
+  "backend_latency": 89
+}

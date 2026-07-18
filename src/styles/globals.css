@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    @apply bg-surface-950 text-white;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply font-sans overflow-hidden;
+    background-color: #080a0c;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-500 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-teal-700;
+  }
+
+  /* Selection */
+  ::selection {
+    background: rgba(20, 184, 166, 0.25);
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-800 border border-white/5 rounded-2xl;
+  }
+
+  .card-sm {
+    @apply bg-surface-800 border border-white/5 rounded-xl;
+  }
+
+  .label {
+    @apply text-2xs font-medium uppercase tracking-widest text-white/30;
+  }
+
+  .value {
+    @apply text-sm font-medium text-white;
+  }
+
+  .teal-glow {
+    @apply text-teal-400;
+    text-shadow: 0 0 12px rgba(20, 184, 166, 0.5);
+  }
+
+  .divider {
+    @apply border-white/5;
+  }
+
+  /* Live pulse dot */
+  .live-dot {
+    @apply w-2 h-2 rounded-full bg-teal-400;
+    box-shadow: 0 0 8px rgba(20, 184, 166, 0.8);
+    animation: livePulse 2s ease-in-out infinite;
+  }
+
+  @keyframes livePulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.85); }
+  }
+
+  /* Scanning line animation on video */
+  .scan-line {
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(20, 184, 166, 0.06) 50%,
+      transparent 100%
+    );
+    animation: scanLine 4s linear infinite;
+  }
+
+  @keyframes scanLine {
+    0%   { transform: translateY(-100%); }
+    100% { transform: translateY(200%); }
+  }
+
+  /* Corner brackets overlay */
+  .corner-bracket::before,
+  .corner-bracket::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-color: rgba(20, 184, 166, 0.6);
+    border-style: solid;
+  }
+}
+
+/* Video element — no native controls visible */
+video::-webkit-media-controls { display: none !important; }
+video::-webkit-media-controls-enclosure { display: none !important; }
