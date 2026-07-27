@@ -6,13 +6,20 @@ import { useClock } from '@/hooks/useClock';
 import { useAppStore } from '@/state/store';
 import { APP_VERSION } from '@/config';
 import { formatLatency } from '@/utils/smoothing';
+import { STEP_LABELS, isAcquiringStep, isAwaitingStep } from '@/exam/sessionMeta';
 
 export function StatusBar() {
   const time = useClock();
-  const { connectionStatus, isMockMode, backendType, metrics, videoPath } = useAppStore();
+  const { connectionStatus, isMockMode, backendType, metrics, examStep } = useAppStore();
 
   const backendLabel = isMockMode ? 'Mock Backend' : `${backendType.toUpperCase()} Backend`;
-  const videoLabel   = videoPath.split('/').pop() ?? 'ultrasound.mp4';
+
+  const showExamStep = examStep !== 'idle' && examStep !== 'ready';
+  const examStepLabel = STEP_LABELS[examStep];
+  const examColor: 'teal' | 'amber' | 'neutral' =
+    isAwaitingStep(examStep) ? 'amber' :
+    isAcquiringStep(examStep) ? 'teal' :
+    examStep === 'complete' ? 'teal' : 'neutral';
 
   return (
     <footer className="flex items-center justify-between px-5 h-8 bg-surface-950 border-t border-white/5 text-2xs text-white/25 font-medium select-none">
@@ -25,8 +32,12 @@ export function StatusBar() {
           }
           label={backendLabel}
         />
-        <span className="hidden sm:block">│</span>
-        <span className="hidden sm:block uppercase tracking-wider">{videoLabel}</span>
+        {showExamStep && (
+          <>
+            <span className="hidden sm:block">│</span>
+            <StatusPill color={examColor} label={examStepLabel} />
+          </>
+        )}
         <span className="hidden md:block">│</span>
         <span className="hidden md:block">
           {connectionStatus === 'connected'  ? 'Connected' :
@@ -36,7 +47,7 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-4">
-        {metrics.inferenceLatency > 0 && (
+        {metrics.inferenceLatency > 0 && isAcquiringStep(examStep) && (
           <>
             <span className="hidden sm:block tabular-nums">{formatLatency(metrics.inferenceLatency)}</span>
             <span className="hidden sm:block">│</span>

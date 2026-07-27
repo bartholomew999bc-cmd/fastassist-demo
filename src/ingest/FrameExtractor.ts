@@ -112,7 +112,7 @@ export class FrameExtractor {
       outputFps:        recent.length,
       avgExtractionMs:  this.extracted > 0
         ? Math.round(this.sumExtractMs / this.extracted) : 0,
-      peakExtractionMs: Math.round(this.peakExtractionMs),
+      peakExtractionMs: Math.round(this.peakExtractMs),
       useRVFC:          FrameExtractor.HAS_RVFC,
       elementType:      this.classifyElement(),
     };
@@ -120,7 +120,7 @@ export class FrameExtractor {
 
   // ── Private ────────────────────────────────────────────────────────────────
 
-  private scheduleNext(now: DOMHighResTimeStamp, rvfcMeta: VideoFrameCallbackMetadata | null): void {
+  private scheduleNext(_now: DOMHighResTimeStamp, _rvfcMeta: VideoFrameCallbackMetadata | null): void {
     if (!this.running) return;
 
     const el = this.queryElement();

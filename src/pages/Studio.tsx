@@ -35,10 +35,16 @@ export function Studio() {
   const confirmView  = useAppStore(s => s.confirmView);
   const reacquire    = useAppStore(s => s.reacquire);
 
+  const examStep = useAppStore(s => s.examStep);
+
   // When the workflow is frozen, keep the frozen result on screen.
+  // When idle / ready / complete, show nothing (no spurious overlays).
   // Otherwise show the live inference result.
+  const isInactiveStep = examStep === 'idle' || examStep === 'ready' || examStep === 'complete';
   const displayResult = examPhase === 'awaiting_confirmation'
     ? frozenResult
+    : isInactiveStep
+    ? null
     : inference.result;
 
   return (

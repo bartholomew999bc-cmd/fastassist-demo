@@ -1,0 +1,2 @@
+- [FAST-Assist exam session architecture](fast-assist-exam-session.md) — ExamSessionStep drives workflow; ExamPhase controls inference loop; sessionMeta.ts holds all transitions.
+- [FAST-Assist build flags](fast-assist-build-flags.md) — `tsc --noEmit` misses noUnusedLocals errors; `npm run build` (`tsc -b`) is the authoritative check.

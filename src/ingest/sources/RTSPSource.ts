@@ -243,7 +243,7 @@ export class RTSPSource implements IVideoSource {
   }
 
   private async decodeJPEG(data: Uint8Array): Promise<void> {
-    const blob = new Blob([data], { type: 'image/jpeg' });
+    const blob = new Blob([new Uint8Array(data)], { type: 'image/jpeg' });
     const url  = URL.createObjectURL(blob);
     return new Promise(resolve => {
       const img   = new Image();

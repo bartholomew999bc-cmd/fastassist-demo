@@ -4,14 +4,16 @@
  * Drives the frame → AI → state update loop.
  *
  * Frames are acquired exclusively from VideoIngestManager.acquireLatestFrame()
- * so the inference path is fully decoupled from the DOM. No direct
- * querySelector / getElementById calls exist here.
+ * so the inference path is fully decoupled from the DOM.
  *
  * Examination workflow integration:
+ *   • Inference only runs during acquiring_* steps (idle / ready / complete = no-op).
  *   • When examPhase is 'awaiting_confirmation', the tick is a no-op so
  *     inference pauses while the operator reviews the frozen result.
- *   • When a result meets the confidence + quality thresholds, freezeOnResult()
- *     is called which transitions the exam to 'awaiting_confirmation'.
+ *   • The mock backend is pinned to the scenario matching the current exam
+ *     window so results are always contextually appropriate.
+ *   • A minimum acquisition frame count must be reached before the workflow
+ *     will freeze, preventing an instant confirm on the very first frame.
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -23,6 +25,8 @@ import { RESTBackend } from '@/services/RESTBackend';
 import { ema } from '@/utils/smoothing';
 import { logger } from '@/utils/logger';
 import { config } from '@/config';
+import { isAcquiringStep, scenarioForStep } from '@/exam/sessionMeta';
+import type { ExamSessionStep } from '@/types';
 
 export interface InferenceState {
   result:      InferenceResult | null;
@@ -39,6 +43,13 @@ const INITIAL: InferenceState = {
   fps:         0,
   isMock:      true,
 };
+
+/**
+ * Minimum number of frames that must be processed in the current acquisition
+ * window before the workflow is allowed to freeze for confirmation.
+ * Prevents an immediate freeze on the first inference tick.
+ */
+const MIN_ACQUISITION_FRAMES = 4;
 
 // Module-level mock backend — one instance shared across re-mounts
 const mockBackend = new MockBackend();
@@ -71,6 +82,11 @@ export function useInference(): InferenceState {
     let smoothedMs    = 0;
     let running       = true;
 
+    // Per-window acquisition frame counter — reset whenever the exam step
+    // enters a new acquiring_* state.
+    let lastExamStep: ExamSessionStep     = useAppStore.getState().examStep;
+    let acquisitionFrameCount             = 0;
+
     // ── Health check ──────────────────────────────────────────────────────────
     setConnectionStatus('connecting');
     restBackend.healthCheck()
@@ -89,8 +105,24 @@ export function useInference(): InferenceState {
     const tick = async () => {
       if (!running) return;
 
+      const examStep  = useAppStore.getState().examStep;
+      const examPhase = useAppStore.getState().examPhase;
+
+      // Only run inference during active acquisition windows
+      if (!isAcquiringStep(examStep)) return;
+
       // Pause inference while the operator is reviewing a frozen result
-      if (useAppStore.getState().examPhase === 'awaiting_confirmation') return;
+      if (examPhase === 'awaiting_confirmation') return;
+
+      // Reset the per-window frame counter when entering a new window
+      if (examStep !== lastExamStep) {
+        lastExamStep          = examStep;
+        acquisitionFrameCount = 0;
+        logger.debug('useInference', `New acquisition window: ${examStep}`);
+      }
+
+      // Pin the mock backend to the appropriate scenario for this exam window
+      mockBackend.pinToWindow(scenarioForStep(examStep));
 
       // FPS accounting
       fpsCount++;
@@ -102,8 +134,7 @@ export function useInference(): InferenceState {
         updateMetrics({ fps, droppedFrames });
       }
 
-      // Acquire the latest processed frame from the ingest pipeline.
-      // Returns null when no new frame has arrived since the last call.
+      // Acquire the latest processed frame from the ingest pipeline
       const frame = manager.acquireLatestFrame();
       if (!frame) {
         droppedFrames++;
@@ -111,6 +142,7 @@ export function useInference(): InferenceState {
       }
 
       frameNumber++;
+      acquisitionFrameCount++;
       const t0 = performance.now();
 
       const pushResult = (result: InferenceResult, mock: boolean) => {
@@ -144,9 +176,12 @@ export function useInference(): InferenceState {
         logger.debug('useInference', `Frame ${frameNumber} via ${mock ? 'mock' : 'REST'} — ${latencyMs}ms`);
 
         // ── Examination workflow: freeze on threshold ──────────────────────
+        // Only freeze after MIN_ACQUISITION_FRAMES to feel like genuine
+        // acquisition work rather than an immediate confirmation prompt.
         const meetsThreshold =
-          result.confidence   >= config.confirmConfidenceThreshold &&
-          result.quality.overall >= config.confirmQualityThreshold;
+          result.confidence      >= config.confirmConfidenceThreshold &&
+          result.quality.overall >= config.confirmQualityThreshold   &&
+          acquisitionFrameCount  >= MIN_ACQUISITION_FRAMES;
 
         if (meetsThreshold && useAppStore.getState().examPhase === 'acquiring') {
           freezeOnResult(result);

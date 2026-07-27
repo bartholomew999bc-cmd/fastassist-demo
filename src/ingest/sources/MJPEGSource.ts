@@ -41,7 +41,6 @@ export class MJPEGSource implements IVideoSource {
 
   private abortCtrl:     AbortController | null = null;
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  private latestJpeg:    Uint8Array | null = null;
   private latestCanvas:  HTMLCanvasElement | null = null;
   private disposed      = false;
 
@@ -98,7 +97,6 @@ export class MJPEGSource implements IVideoSource {
   dispose(): void {
     this.disposed = true;
     this.stop();
-    this.latestJpeg   = null;
     this.latestCanvas = null;
     this.frameCbs      = [];
     this.errorCbs      = [];
@@ -232,7 +230,7 @@ export class MJPEGSource implements IVideoSource {
   }
 
   private async decodeJPEGFrame(data: Uint8Array): Promise<void> {
-    const blob = new Blob([data], { type: 'image/jpeg' });
+    const blob = new Blob([new Uint8Array(data)], { type: 'image/jpeg' });
     const url  = URL.createObjectURL(blob);
 
     return new Promise(resolve => {
@@ -243,7 +241,6 @@ export class MJPEGSource implements IVideoSource {
         canvas.height = img.naturalHeight;
         canvas.getContext('2d')?.drawImage(img, 0, 0);
         this.latestCanvas = canvas;
-        this.latestJpeg   = data;
         URL.revokeObjectURL(url);
 
         const raw = this.getFrame();

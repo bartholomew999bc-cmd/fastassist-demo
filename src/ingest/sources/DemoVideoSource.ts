@@ -71,7 +71,8 @@ export class DemoVideoSource implements IVideoSource {
     this.desiredPlaying = false;
     this._status   = 'paused';
     this._playback = 'paused';
-    this.getDOMElement()?.pause();
+    const el = this.getDOMElement();
+    if (el instanceof HTMLVideoElement) el.pause();
   }
 
   resume(): void { this.start(); }
@@ -81,7 +82,7 @@ export class DemoVideoSource implements IVideoSource {
     this._status   = 'stopped';
     this._playback = 'stopped';
     const el = this.getDOMElement();
-    if (el) { el.pause(); el.currentTime = 0; }
+    if (el instanceof HTMLVideoElement) { el.pause(); el.currentTime = 0; }
   }
 
   disconnect(): void {

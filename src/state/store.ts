@@ -12,11 +12,16 @@ import type {
   AppTheme,
   BackendType,
   PerformanceMetrics,
-  ExamPhase,
+  ExamSessionStep,
   ConfirmedView,
 } from '@/types';
 import { config } from '@/config';
 import { ema } from '@/utils/smoothing';
+import {
+  FREEZE_STEP,
+  CONFIRM_STEP,
+  REACQUIRE_STEP,
+} from '@/exam/sessionMeta';
 
 interface AppActions {
   setResult(result: InferenceResult, latencyMs: number): void;
@@ -32,21 +37,30 @@ interface AppActions {
   setInferenceInterval(ms: number): void;
   resetMetrics(): void;
 
-  // ── Examination workflow ────────────────────────────────────────────────────
+  // ── Examination session ─────────────────────────────────────────────────────
+  /**
+   * Begin the FAST examination sequence from the RUQ window.
+   * Resets any prior confirmed views and starts from scratch.
+   */
+  startExam(): void;
+  /**
+   * Reset the examination back to idle (operator can start again).
+   */
+  resetExam(): void;
   /**
    * Freeze the workflow on a high-confidence result.
-   * Transitions examPhase to 'awaiting_confirmation' and stores the result.
-   * The inference loop checks this state before each tick and will pause.
+   * Transitions both examPhase and examStep to their awaiting variants.
+   * The inference loop checks examPhase before each tick and will pause.
    */
   freezeOnResult(result: InferenceResult): void;
   /**
    * Operator confirmed the current view.
-   * Adds it to the session history and resumes acquisition.
+   * Records it in the session history and advances to the next window.
    */
   confirmView(): void;
   /**
    * Operator rejected the current view and wants to re-acquire.
-   * Resumes acquisition without recording a confirmed view.
+   * Resumes acquisition of the same window without recording a confirmed view.
    */
   reacquire(): void;
 }
@@ -79,8 +93,9 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   isVideoPlaying:    false,
   videoCurrentTime:  0,
 
-  // Examination workflow — start acquiring immediately
+  // Examination session — start idle; operator begins the exam explicitly
   examPhase:      'acquiring',
+  examStep:       'idle',
   frozenResult:   null,
   confirmedViews: [],
 
@@ -131,15 +146,41 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   setInferenceInterval(ms) { set({ inferenceInterval: ms }); },
   resetMetrics() { set({ metrics: { ...DEFAULT_METRICS } }); },
 
-  // ── Examination Workflow Actions ───────────────────────────────────────────
+  // ── Examination Session Actions ────────────────────────────────────────────
+
+  startExam() {
+    set({
+      examStep:       'acquiring_ruq',
+      examPhase:      'acquiring',
+      frozenResult:   null,
+      confirmedViews: [],
+      currentResult:  null,
+      previousResult: null,
+      metrics:        { ...DEFAULT_METRICS },
+    });
+  },
+
+  resetExam() {
+    set({
+      examStep:       'idle',
+      examPhase:      'acquiring',
+      frozenResult:   null,
+      confirmedViews: [],
+      currentResult:  null,
+      previousResult: null,
+    });
+  },
 
   freezeOnResult(result) {
-    set({ examPhase: 'awaiting_confirmation', frozenResult: result });
+    const { examStep } = get();
+    const nextStep: ExamSessionStep = FREEZE_STEP[examStep] ?? examStep;
+    set({ examPhase: 'awaiting_confirmation', frozenResult: result, examStep: nextStep });
   },
 
   confirmView() {
-    const { frozenResult, confirmedViews } = get();
+    const { frozenResult, confirmedViews, examStep } = get();
     if (!frozenResult) return;
+
     const entry: ConfirmedView = {
       scanView:    frozenResult.scan_view,
       confidence:  frozenResult.confidence,
@@ -147,15 +188,23 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
       confirmedAt: Date.now(),
       result:      frozenResult,
     };
+
+    const nextStep: ExamSessionStep = CONFIRM_STEP[examStep] ?? examStep;
+
     set({
       examPhase:      'acquiring',
       frozenResult:   null,
       confirmedViews: [...confirmedViews, entry],
+      examStep:       nextStep,
+      // Clear live result so overlays don't linger between windows
+      currentResult:  null,
     });
   },
 
   reacquire() {
-    set({ examPhase: 'acquiring', frozenResult: null });
+    const { examStep } = get();
+    const backStep: ExamSessionStep = REACQUIRE_STEP[examStep] ?? examStep;
+    set({ examPhase: 'acquiring', frozenResult: null, examStep: backStep });
   },
 }));
 
@@ -167,5 +216,6 @@ export const selectIsMock         = (s: AppState) => s.isMockMode;
 export const selectTheme          = (s: AppState) => s.theme;
 export const selectIsFullscreen   = (s: AppState) => s.isFullscreen;
 export const selectExamPhase      = (s: AppState) => s.examPhase;
+export const selectExamStep       = (s: AppState) => s.examStep;
 export const selectFrozenResult   = (s: AppState) => s.frozenResult;
 export const selectConfirmedViews = (s: AppState) => s.confirmedViews;

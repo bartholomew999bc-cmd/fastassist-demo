@@ -60,6 +60,23 @@ export interface PerformanceMetrics {
  */
 export type ExamPhase = 'acquiring' | 'awaiting_confirmation';
 
+/**
+ * Full 11-state FAST examination session.
+ * Controls which acquisition window is active and overall session progress.
+ */
+export type ExamSessionStep =
+  | 'idle'
+  | 'ready'
+  | 'acquiring_ruq'
+  | 'awaiting_ruq'
+  | 'acquiring_luq'
+  | 'awaiting_luq'
+  | 'acquiring_pelvis'
+  | 'awaiting_pelvis'
+  | 'acquiring_cardiac'
+  | 'awaiting_cardiac'
+  | 'complete';
+
 /** A single confirmed view in the exam session history */
 export interface ConfirmedView {
   scanView:    string;
@@ -96,6 +113,7 @@ export interface AppState {
 
   // Examination workflow
   examPhase:      ExamPhase;
+  examStep:       ExamSessionStep;
   frozenResult:   InferenceResult | null;
   confirmedViews: ConfirmedView[];
 }
