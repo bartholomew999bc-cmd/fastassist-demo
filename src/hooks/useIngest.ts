@@ -17,6 +17,7 @@ import { WebcamSource }     from '@/ingest/sources/WebcamSource';
 import { MJPEGSource }      from '@/ingest/sources/MJPEGSource';
 import { RTSPSource }       from '@/ingest/sources/RTSPSource';
 import { DicomCineSource }  from '@/ingest/sources/DicomCineSource';
+import { SyntheticSource }  from '@/ingest/sources/SyntheticSource';
 import { ingestBus }        from '@/ingest/IngestEvents';
 import type { IngestDiagnostics } from '@/ingest/VideoIngestManager';
 import type { SourceKind, SourceStatus } from '@/ingest/IVideoSource';
@@ -129,18 +130,6 @@ export function useIngest(): IngestState & IngestActions {
     setState(s => ({ ...s, isConnecting: true, error: null }));
 
     try {
-      if (cfg.kind === 'synthetic') {
-        // Synthetic is purely React-rendered; just update state
-        setState(s => ({
-          ...s,
-          activeKind:   'synthetic',
-          sourceStatus: 'playing',
-          sourceLabel:  'Synthetic Ultrasound',
-          isConnecting: false,
-        }));
-        return;
-      }
-
       let source;
       switch (cfg.kind) {
         case 'demo':
@@ -165,6 +154,9 @@ export function useIngest(): IngestState & IngestActions {
           break;
         case 'dicom':
           source = new DicomCineSource();
+          break;
+        case 'synthetic':
+          source = new SyntheticSource();
           break;
         default:
           throw new Error(`Unknown source kind: ${(cfg as { kind: string }).kind}`);

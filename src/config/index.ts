@@ -26,6 +26,17 @@ export interface AppConfig {
   confidenceSmoothFactor: number;
   /** How many log entries to retain in memory */
   maxLogEntries: number;
+
+  /**
+   * Minimum AI confidence (0–1) required to freeze the workflow and
+   * present the "Awaiting Operator Confirmation" prompt.
+   */
+  confirmConfidenceThreshold: number;
+  /**
+   * Minimum image quality score (0–1) required to freeze the workflow.
+   * Both this AND confirmConfidenceThreshold must be met.
+   */
+  confirmQualityThreshold: number;
 }
 
 export const config: AppConfig = {
@@ -38,9 +49,13 @@ export const config: AppConfig = {
   defaultBackend:        (import.meta.env.VITE_BACKEND as BackendType) ?? 'rest',
   confidenceSmoothFactor: 0.3,
   maxLogEntries:         500,
+
+  // Examination workflow thresholds
+  confirmConfidenceThreshold: 0.85,
+  confirmQualityThreshold:    0.75,
 };
 
 /** Application version — kept in sync with package.json */
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.2.0';
 export const APP_NAME    = 'FAST-Assist Studio';
 export const APP_TAGLINE = 'Vendor-Agnostic AI Ultrasound Assistant';

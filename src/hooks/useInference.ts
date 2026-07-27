@@ -1,34 +1,35 @@
 /**
  * FAST-Assist Studio — useInference Hook
  *
- * Returns `InferenceResult | null` from a polling loop that runs inside
- * a useEffect. All store writes happen through the React-owned setter so
- * React's batching and scheduling see every update correctly.
+ * Drives the frame → AI → state update loop.
  *
- * Architecture note: the result is returned from this hook AND mirrored
- * into the Zustand store so other components (TopBar, StatusBar) can read
- * it without prop-drilling. The primary update path is the returned React
- * state, which is guaranteed to trigger re-renders.
+ * Frames are acquired exclusively from VideoIngestManager.acquireLatestFrame()
+ * so the inference path is fully decoupled from the DOM. No direct
+ * querySelector / getElementById calls exist here.
+ *
+ * Examination workflow integration:
+ *   • When examPhase is 'awaiting_confirmation', the tick is a no-op so
+ *     inference pauses while the operator reviews the frozen result.
+ *   • When a result meets the confidence + quality thresholds, freezeOnResult()
+ *     is called which transitions the exam to 'awaiting_confirmation'.
  */
 
 import { useState, useEffect, useRef } from 'react';
 import type { InferenceResult } from '@/types';
 import { useAppStore } from '@/state/store';
+import { useIngestManager } from '@/ingest/IngestContext';
 import { MockBackend } from '@/services/MockBackend';
 import { RESTBackend } from '@/services/RESTBackend';
-import { captureFrame } from '@/utils/frameCapture';
 import { ema } from '@/utils/smoothing';
 import { logger } from '@/utils/logger';
 import { config } from '@/config';
 
-const mockBackend = new MockBackend();
-
 export interface InferenceState {
-  result: InferenceResult | null;
-  latencyMs: number;
+  result:      InferenceResult | null;
+  latencyMs:   number;
   frameNumber: number;
-  fps: number;
-  isMock: boolean;
+  fps:         number;
+  isMock:      boolean;
 }
 
 const INITIAL: InferenceState = {
@@ -39,16 +40,22 @@ const INITIAL: InferenceState = {
   isMock:      true,
 };
 
-export function useInference(): InferenceState {
-  const [state, setState] = useState<InferenceState>(INITIAL);
-  const stateRef = useRef<InferenceState>(INITIAL); // sync read inside closure
+// Module-level mock backend — one instance shared across re-mounts
+const mockBackend = new MockBackend();
 
-  // Mirror key state to Zustand for TopBar / StatusBar reads
+export function useInference(): InferenceState {
+  const [state, setState]   = useState<InferenceState>(INITIAL);
+  const stateRef            = useRef<InferenceState>(INITIAL);
+
+  // Ingest manager — the single source of frames
+  const manager = useIngestManager();
+
+  // Zustand actions (stable references, safe as effect deps)
   const setMockMode         = useAppStore(s => s.setMockMode);
   const setConnectionStatus = useAppStore(s => s.setConnectionStatus);
   const updateMetrics       = useAppStore(s => s.updateMetrics);
-  // Writes currentResult so InfoPanel and other store consumers update
   const setResult           = useAppStore(s => s.setResult);
+  const freezeOnResult      = useAppStore(s => s.freezeOnResult);
 
   useEffect(() => {
     const restBackend = new RESTBackend(
@@ -56,39 +63,36 @@ export function useInference(): InferenceState {
       4000,
     );
 
-    let isMockLocal    = true;  // local flag — no re-render cost
-    let fpsCount       = 0;
-    let lastFpsTs      = Date.now();
-    let droppedFrames  = 0;
-    let frameNumber    = 0;
-    let smoothedMs     = 0;
-    let running        = true;
+    let isMockLocal   = true;
+    let fpsCount      = 0;
+    let lastFpsTs     = Date.now();
+    let droppedFrames = 0;
+    let frameNumber   = 0;
+    let smoothedMs    = 0;
+    let running       = true;
 
     // ── Health check ──────────────────────────────────────────────────────────
     setConnectionStatus('connecting');
-    restBackend.healthCheck().then(ok => {
-      if (!running) return;
-      if (ok) {
-        isMockLocal = false;
-        setConnectionStatus('connected');
-        setMockMode(false);
-      } else {
+    restBackend.healthCheck()
+      .then(ok => {
+        if (!running) return;
+        isMockLocal = !ok;
+        setConnectionStatus(ok ? 'connected' : 'mock');
+        setMockMode(!ok);
+      })
+      .catch(() => {
         setConnectionStatus('mock');
         setMockMode(true);
-        // REST is down — don't wait for the next interval, kick off a tick now
-        void tick();
-      }
-    }).catch(() => {
-      setConnectionStatus('mock');
-      setMockMode(true);
-      void tick();
-    });
+      });
 
     // ── Inference tick ────────────────────────────────────────────────────────
     const tick = async () => {
       if (!running) return;
 
-      // FPS
+      // Pause inference while the operator is reviewing a frozen result
+      if (useAppStore.getState().examPhase === 'awaiting_confirmation') return;
+
+      // FPS accounting
       fpsCount++;
       const nowMs = Date.now();
       if (nowMs - lastFpsTs >= 1000) {
@@ -98,22 +102,11 @@ export function useInference(): InferenceState {
         updateMetrics({ fps, droppedFrames });
       }
 
-      // Frame capture
-      const source = document.querySelector<HTMLVideoElement | HTMLCanvasElement>(
-        '#fast-assist-video'
-      );
-      if (!source) {
+      // Acquire the latest processed frame from the ingest pipeline.
+      // Returns null when no new frame has arrived since the last call.
+      const frame = manager.acquireLatestFrame();
+      if (!frame) {
         droppedFrames++;
-        // Video DOM not ready yet — retry sooner than the full interval
-        setTimeout(() => { if (running) void tick(); }, 300);
-        return;
-      }
-
-      const frameData = captureFrame(source);
-      if (!frameData) {
-        droppedFrames++;
-        // Video element present but not playable yet — retry sooner
-        setTimeout(() => { if (running) void tick(); }, 300);
         return;
       }
 
@@ -127,7 +120,7 @@ export function useInference(): InferenceState {
           ? latencyMs
           : Math.round(ema(smoothedMs, latencyMs, config.confidenceSmoothFactor));
 
-        // Primary update: React state — guaranteed to trigger re-render
+        // Primary update: React state — guaranteed to trigger re-renders
         const next: InferenceState = {
           result,
           latencyMs: smoothedMs,
@@ -138,26 +131,35 @@ export function useInference(): InferenceState {
         stateRef.current = next;
         setState(next);
 
-        // Write result to Zustand so other store consumers see it
+        // Mirror to Zustand for TopBar / StatusBar / InfoPanel
         setResult(result, smoothedMs);
-
-        // Mirror to Zustand for sidebar components
         updateMetrics({ inferenceLatency: smoothedMs, frameNumber });
+
         if (mock !== isMockLocal) {
           isMockLocal = mock;
           setMockMode(mock);
           setConnectionStatus(mock ? 'mock' : 'connected');
         }
+
         logger.debug('useInference', `Frame ${frameNumber} via ${mock ? 'mock' : 'REST'} — ${latencyMs}ms`);
+
+        // ── Examination workflow: freeze on threshold ──────────────────────
+        const meetsThreshold =
+          result.confidence   >= config.confirmConfidenceThreshold &&
+          result.quality.overall >= config.confirmQualityThreshold;
+
+        if (meetsThreshold && useAppStore.getState().examPhase === 'acquiring') {
+          freezeOnResult(result);
+        }
       };
 
       // Try REST, fall back to mock
       try {
-        const result = await restBackend.infer(frameData);
+        const result = await restBackend.infer(frame.dataUrl);
         pushResult(result, false);
       } catch {
         try {
-          const result = await mockBackend.infer(frameData);
+          const result = await mockBackend.infer(frame.dataUrl);
           pushResult(result, true);
         } catch (e) {
           logger.error('useInference', 'Both backends failed', e);
@@ -173,8 +175,8 @@ export function useInference(): InferenceState {
       running = false;
       clearInterval(id);
     };
-  // Stable dependencies only — run once per mount
-  }, [setMockMode, setConnectionStatus, updateMetrics, setResult]); // eslint-disable-line react-hooks/exhaustive-deps
+  // manager is stable (singleton from context); Zustand setters are stable refs.
+  }, [manager, setMockMode, setConnectionStatus, updateMetrics, setResult, freezeOnResult]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return state;
 }

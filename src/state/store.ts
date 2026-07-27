@@ -2,7 +2,6 @@
  * FAST-Assist Studio — Zustand State Store
  *
  * Single source of truth for all application state.
- * Uses immer-like shallow updates for maximum performance.
  */
 
 import { create } from 'zustand';
@@ -13,6 +12,8 @@ import type {
   AppTheme,
   BackendType,
   PerformanceMetrics,
+  ExamPhase,
+  ConfirmedView,
 } from '@/types';
 import { config } from '@/config';
 import { ema } from '@/utils/smoothing';
@@ -30,6 +31,24 @@ interface AppActions {
   setBackendType(type: BackendType): void;
   setInferenceInterval(ms: number): void;
   resetMetrics(): void;
+
+  // ── Examination workflow ────────────────────────────────────────────────────
+  /**
+   * Freeze the workflow on a high-confidence result.
+   * Transitions examPhase to 'awaiting_confirmation' and stores the result.
+   * The inference loop checks this state before each tick and will pause.
+   */
+  freezeOnResult(result: InferenceResult): void;
+  /**
+   * Operator confirmed the current view.
+   * Adds it to the session history and resumes acquisition.
+   */
+  confirmView(): void;
+  /**
+   * Operator rejected the current view and wants to re-acquire.
+   * Resumes acquisition without recording a confirmed view.
+   */
+  reacquire(): void;
 }
 
 const DEFAULT_METRICS: PerformanceMetrics = {
@@ -60,7 +79,12 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   isVideoPlaying:    false,
   videoCurrentTime:  0,
 
-  // ── Actions ────────────────────────────────────────────────────────────────
+  // Examination workflow — start acquiring immediately
+  examPhase:      'acquiring',
+  frozenResult:   null,
+  confirmedViews: [],
+
+  // ── Inference Actions ──────────────────────────────────────────────────────
 
   setResult(result, latencyMs) {
     const prev = get();
@@ -80,9 +104,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     });
   },
 
-  setConnectionStatus(status) {
-    set({ connectionStatus: status });
-  },
+  setConnectionStatus(status) { set({ connectionStatus: status }); },
 
   setMockMode(isMock) {
     set({
@@ -96,43 +118,54 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     document.documentElement.classList.toggle('dark', theme === 'dark');
   },
 
-  setFullscreen(isFullscreen) {
-    set({ isFullscreen });
-  },
-
-  setInferring(isInferring) {
-    set({ isInferring });
-  },
-
-  setVideoPlaying(isPlaying) {
-    set({ isVideoPlaying: isPlaying });
-  },
-
-  setVideoTime(time) {
-    set({ videoCurrentTime: time });
-  },
+  setFullscreen(isFullscreen) { set({ isFullscreen }); },
+  setInferring(isInferring)   { set({ isInferring }); },
+  setVideoPlaying(isPlaying)  { set({ isVideoPlaying: isPlaying }); },
+  setVideoTime(time)          { set({ videoCurrentTime: time }); },
 
   updateMetrics(partial) {
     set(state => ({ metrics: { ...state.metrics, ...partial } }));
   },
 
-  setBackendType(type) {
-    set({ backendType: type });
+  setBackendType(type) { set({ backendType: type }); },
+  setInferenceInterval(ms) { set({ inferenceInterval: ms }); },
+  resetMetrics() { set({ metrics: { ...DEFAULT_METRICS } }); },
+
+  // ── Examination Workflow Actions ───────────────────────────────────────────
+
+  freezeOnResult(result) {
+    set({ examPhase: 'awaiting_confirmation', frozenResult: result });
   },
 
-  setInferenceInterval(ms) {
-    set({ inferenceInterval: ms });
+  confirmView() {
+    const { frozenResult, confirmedViews } = get();
+    if (!frozenResult) return;
+    const entry: ConfirmedView = {
+      scanView:    frozenResult.scan_view,
+      confidence:  frozenResult.confidence,
+      quality:     frozenResult.quality.overall,
+      confirmedAt: Date.now(),
+      result:      frozenResult,
+    };
+    set({
+      examPhase:      'acquiring',
+      frozenResult:   null,
+      confirmedViews: [...confirmedViews, entry],
+    });
   },
 
-  resetMetrics() {
-    set({ metrics: { ...DEFAULT_METRICS } });
+  reacquire() {
+    set({ examPhase: 'acquiring', frozenResult: null });
   },
 }));
 
-// Convenience selectors
-export const selectResult    = (s: AppState) => s.currentResult;
-export const selectMetrics   = (s: AppState) => s.metrics;
-export const selectStatus    = (s: AppState) => s.connectionStatus;
-export const selectIsMock    = (s: AppState) => s.isMockMode;
-export const selectTheme     = (s: AppState) => s.theme;
-export const selectIsFullscreen = (s: AppState) => s.isFullscreen;
+// ── Convenience selectors ─────────────────────────────────────────────────────
+export const selectResult         = (s: AppState) => s.currentResult;
+export const selectMetrics        = (s: AppState) => s.metrics;
+export const selectStatus         = (s: AppState) => s.connectionStatus;
+export const selectIsMock         = (s: AppState) => s.isMockMode;
+export const selectTheme          = (s: AppState) => s.theme;
+export const selectIsFullscreen   = (s: AppState) => s.isFullscreen;
+export const selectExamPhase      = (s: AppState) => s.examPhase;
+export const selectFrozenResult   = (s: AppState) => s.frozenResult;
+export const selectConfirmedViews = (s: AppState) => s.confirmedViews;

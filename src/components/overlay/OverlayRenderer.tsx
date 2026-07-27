@@ -11,29 +11,43 @@
  *   • Scan view badge
  *   • Free-fluid alert highlight
  *   • Quality warning strip
+ *   • Examination confirmation prompt (when examPhase === 'awaiting_confirmation')
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import type { InferenceResult } from '@/types';
+import type { InferenceResult, ExamPhase } from '@/types';
 import { clamp, formatConfidence } from '@/utils/smoothing';
 
 interface Props {
-  result: InferenceResult | null;
-  isInferring: boolean;
+  result:       InferenceResult | null;
+  isInferring:  boolean;
+  examPhase:    ExamPhase;
+  frozenResult: InferenceResult | null;
+  onConfirm:    () => void;
+  onReacquire:  () => void;
 }
 
-export function OverlayRenderer({ result, isInferring }: Props) {
+export function OverlayRenderer({
+  result,
+  isInferring,
+  examPhase,
+  frozenResult,
+  onConfirm,
+  onReacquire,
+}: Props) {
   const hasFreeFluid = result?.structures.some(s =>
     s.toLowerCase().includes('free fluid')
   ) ?? false;
 
-  const quality = result?.quality.overall ?? 0;
+  const quality      = result?.quality.overall ?? 0;
   const isPoorQuality = quality > 0 && quality < 0.6;
+
+  const isAwaiting = examPhase === 'awaiting_confirmation';
 
   return (
     <div className="absolute inset-0 pointer-events-none select-none">
       {/* Corner bracket decorations */}
-      <CornerBrackets active={!!result} />
+      <CornerBrackets active={!!result} frozen={isAwaiting} />
 
       {/* Scan view badge — top left */}
       <AnimatePresence mode="wait">
@@ -112,9 +126,9 @@ export function OverlayRenderer({ result, isInferring }: Props) {
         )}
       </AnimatePresence>
 
-      {/* Guidance strip — bottom */}
+      {/* Guidance strip — bottom (hidden when awaiting confirmation) */}
       <AnimatePresence mode="wait">
-        {result?.guidance && (
+        {result?.guidance && !isAwaiting && (
           <motion.div
             key={result.guidance}
             initial={{ opacity: 0, y: 8 }}
@@ -132,13 +146,13 @@ export function OverlayRenderer({ result, isInferring }: Props) {
             }`}>
               <div className="flex items-center gap-3">
                 <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                  hasFreeFluid ? 'bg-red-400 animate-pulse' :
-                  isPoorQuality ? 'bg-amber-400' :
+                  hasFreeFluid    ? 'bg-red-400 animate-pulse' :
+                  isPoorQuality   ? 'bg-amber-400' :
                   'bg-teal-400'
                 }`} />
                 <span className={`text-xs font-medium ${
-                  hasFreeFluid ? 'text-red-200' :
-                  isPoorQuality ? 'text-amber-200' :
+                  hasFreeFluid    ? 'text-red-200' :
+                  isPoorQuality   ? 'text-amber-200' :
                   'text-white/85'
                 }`}>
                   {result.guidance}
@@ -151,7 +165,7 @@ export function OverlayRenderer({ result, isInferring }: Props) {
 
       {/* Free fluid alert — prominent banner */}
       <AnimatePresence>
-        {hasFreeFluid && (
+        {hasFreeFluid && !isAwaiting && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -170,7 +184,7 @@ export function OverlayRenderer({ result, isInferring }: Props) {
 
       {/* Inference indicator — pulsing ring during active inference */}
       <AnimatePresence>
-        {isInferring && (
+        {isInferring && !isAwaiting && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -184,7 +198,7 @@ export function OverlayRenderer({ result, isInferring }: Props) {
 
       {/* Poor quality warning */}
       <AnimatePresence>
-        {isPoorQuality && (
+        {isPoorQuality && !isAwaiting && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -199,23 +213,102 @@ export function OverlayRenderer({ result, isInferring }: Props) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Examination Confirmation Overlay ───────────────────────────────────
+          Shown when the AI has recognised an acceptable view and is waiting
+          for the operator to confirm or re-acquire. Inference is paused.
+          Buttons use pointer-events-auto to remain interactive inside the
+          pointer-events-none overlay container.
+      ─────────────────────────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {isAwaiting && frozenResult && (
+          <motion.div
+            key="exam-confirmation"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="absolute inset-0 flex items-center justify-center"
+          >
+            {/* Frosted-glass backdrop — dims video slightly */}
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" />
+
+            {/* Confirmation card */}
+            <div className="relative pointer-events-auto flex flex-col items-center gap-5 px-8 py-7 rounded-2xl bg-surface-900/90 backdrop-blur-md border border-teal-500/25 shadow-2xl min-w-[300px] max-w-[420px]">
+
+              {/* Status line */}
+              <div className="flex items-center gap-2.5">
+                <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse flex-shrink-0" />
+                <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-teal-400">
+                  Awaiting Operator Confirmation
+                </span>
+              </div>
+
+              {/* Divider */}
+              <div className="w-full h-px bg-white/8" />
+
+              {/* View details */}
+              <div className="text-center space-y-1.5">
+                <p className="text-3xl font-bold tracking-tight text-white">
+                  {frozenResult.scan_view}
+                </p>
+                <p className="text-sm text-white/45">
+                  Confidence&nbsp;
+                  <span className="text-teal-400 font-semibold">
+                    {Math.round(frozenResult.confidence * 100)}%
+                  </span>
+                  &nbsp;·&nbsp;Quality&nbsp;
+                  <span className="text-teal-400 font-semibold">
+                    {Math.round(frozenResult.quality.overall * 100)}%
+                  </span>
+                </p>
+                {frozenResult.guidance && (
+                  <p className="text-xs text-white/35 leading-relaxed max-w-[280px] mx-auto pt-1">
+                    {frozenResult.guidance}
+                  </p>
+                )}
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  onClick={onReacquire}
+                  className="px-5 py-2.5 rounded-xl border border-white/12 text-white/55 text-xs font-medium hover:bg-white/6 hover:text-white/80 hover:border-white/20 transition-all"
+                >
+                  Re-Acquire
+                </button>
+                <button
+                  onClick={onConfirm}
+                  className="px-6 py-2.5 rounded-xl bg-teal-500/18 border border-teal-500/35 text-teal-300 text-xs font-semibold hover:bg-teal-500/28 hover:border-teal-500/55 transition-all"
+                >
+                  ✓&ensp;Confirm View
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function CornerBrackets({ active }: { active: boolean }) {
-  const color = active ? 'rgba(20,184,166,0.5)' : 'rgba(255,255,255,0.12)';
-  const size  = 20;
+function CornerBrackets({ active, frozen }: { active: boolean; frozen: boolean }) {
+  const color = frozen
+    ? 'rgba(20,184,166,0.8)'
+    : active
+    ? 'rgba(20,184,166,0.5)'
+    : 'rgba(255,255,255,0.12)';
+  const size      = 20;
   const thickness = 2;
-  const offset = 12;
+  const offset    = 12;
 
   const corners = [
-    { top: offset, left: offset,   rotate: 0   },
-    { top: offset, right: offset,  rotate: 90  },
-    { bottom: offset, right: offset, rotate: 180 },
-    { bottom: offset, left: offset,  rotate: 270 },
+    { top: offset,    left: offset,   rotate: 0   },
+    { top: offset,    right: offset,  rotate: 90  },
+    { bottom: offset, right: offset,  rotate: 180 },
+    { bottom: offset, left: offset,   rotate: 270 },
   ];
 
   return (
@@ -226,12 +319,7 @@ function CornerBrackets({ active }: { active: boolean }) {
           animate={{ opacity: active ? 1 : 0.3 }}
           transition={{ duration: 0.5 }}
           className="absolute"
-          style={{
-            ...pos,
-            width: size,
-            height: size,
-            transform: `rotate(${pos.rotate}deg)`,
-          }}
+          style={{ ...pos, width: size, height: size, transform: `rotate(${pos.rotate}deg)` }}
         >
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} fill="none">
             <path
@@ -248,20 +336,18 @@ function CornerBrackets({ active }: { active: boolean }) {
 }
 
 function ConfidenceArc({ value }: { value: number }) {
-  const pct    = clamp(value, 0, 1);
-  const radius = 28;
+  const pct           = clamp(value, 0, 1);
+  const radius        = 28;
   const circumference = 2 * Math.PI * radius;
   const strokeDash    = circumference * pct;
-  const isHigh   = pct >= 0.85;
-  const isMedium = pct >= 0.65;
-  const color = isHigh ? '#14b8a6' : isMedium ? '#fbbf24' : '#ef4444';
+  const isHigh        = pct >= 0.85;
+  const isMedium      = pct >= 0.65;
+  const color         = isHigh ? '#14b8a6' : isMedium ? '#fbbf24' : '#ef4444';
 
   return (
     <div className="relative w-16 h-16 flex items-center justify-center">
       <svg width="64" height="64" viewBox="0 0 64 64" style={{ transform: 'rotate(-90deg)' }}>
-        {/* Track */}
         <circle cx="32" cy="32" r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
-        {/* Progress */}
         <motion.circle
           cx="32" cy="32" r={radius}
           fill="none"

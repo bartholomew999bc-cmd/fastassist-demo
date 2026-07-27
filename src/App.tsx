@@ -2,13 +2,14 @@
  * FAST-Assist Studio — Root Application
  *
  * Manages the splash → studio transition.
- * Wraps the app with React Query and Router providers.
+ * Wraps the app with React Query, Router, and IngestProvider.
  */
 
 import { useState, useCallback } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AnimatePresence } from 'framer-motion';
+import { IngestProvider } from '@/ingest/IngestContext';
 import { SplashScreen } from '@/components/SplashScreen';
 import { Studio } from '@/pages/Studio';
 
@@ -22,7 +23,7 @@ const queryClient = new QueryClient({
 });
 
 export function App() {
-  const [showSplash, setShowSplash] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
@@ -31,13 +32,20 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        {/* Studio renders behind the splash so useInference starts early */}
-        <Studio />
-        <AnimatePresence>
-          {showSplash && (
-            <SplashScreen key="splash" onComplete={handleSplashComplete} />
-          )}
-        </AnimatePresence>
+        {/*
+         * IngestProvider must wrap Studio so that useIngestManager() is
+         * available inside useInference and all child components.
+         * The pipeline starts as soon as the provider mounts.
+         */}
+        <IngestProvider>
+          {/* Studio renders behind the splash so the pipeline starts early */}
+          <Studio />
+          <AnimatePresence>
+            {showSplash && (
+              <SplashScreen key="splash" onComplete={handleSplashComplete} />
+            )}
+          </AnimatePresence>
+        </IngestProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );

@@ -26,22 +26,6 @@ export interface InferenceResult {
   backend_latency: number; // ms
 }
 
-// ─── Video Source ─────────────────────────────────────────────────────────────
-
-export type VideoSourceType = 'mp4' | 'hdmi' | 'usb' | 'webcam' | 'rtsp';
-
-export interface VideoSource {
-  type: VideoSourceType;
-  label: string;
-  /** Returns the current HTMLVideoElement, or null if not ready */
-  getElement(): HTMLVideoElement | null;
-  play(): Promise<void>;
-  pause(): void;
-  seek(time: number): void;
-  /** Capture current frame as base64 JPEG data URL */
-  captureFrame(): string | null;
-}
-
 // ─── Inference Backend ────────────────────────────────────────────────────────
 
 export type BackendType = 'rest' | 'mock' | 'huggingface' | 'runpod' | 'openai' | 'tensorrt';
@@ -65,6 +49,24 @@ export interface PerformanceMetrics {
   inferenceLatency: number;   // ms, smoothed
   droppedFrames: number;
   frameNumber: number;
+}
+
+// ─── Examination Workflow ─────────────────────────────────────────────────────
+
+/**
+ * The operator-controlled examination state machine.
+ * AI inference runs during 'acquiring'. On a high-confidence result the
+ * workflow freezes at 'awaiting_confirmation' until the operator acts.
+ */
+export type ExamPhase = 'acquiring' | 'awaiting_confirmation';
+
+/** A single confirmed view in the exam session history */
+export interface ConfirmedView {
+  scanView:    string;
+  confidence:  number;
+  quality:     number;
+  confirmedAt: number;
+  result:      InferenceResult;
 }
 
 export interface AppState {
@@ -91,6 +93,11 @@ export interface AppState {
   // Video
   isVideoPlaying: boolean;
   videoCurrentTime: number;
+
+  // Examination workflow
+  examPhase:      ExamPhase;
+  frozenResult:   InferenceResult | null;
+  confirmedViews: ConfirmedView[];
 }
 
 // ─── Log Entry ────────────────────────────────────────────────────────────────

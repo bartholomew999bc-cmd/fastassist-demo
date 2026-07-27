@@ -5,27 +5,41 @@
  *   TopBar (fixed height)
  *   ┌─────────────────────────────┬──────────────┐
  *   │                             │              │
- *   │   Video + Overlay (75%)     │  Info Panel  │
- *   │                             │    (25%)     │
+ *   │   SourceRenderer + Overlay  │  Info Panel  │
+ *   │          (75%)              │    (25%)     │
  *   └─────────────────────────────┴──────────────┘
  *   StatusBar (fixed height)
  *
- * Starts the inference loop. Wires everything together.
+ * Wires the single ingest pipeline → inference hook → exam state → UI.
+ * No legacy VideoPlayer or direct DOM frame capture.
  */
 
 import { motion } from 'framer-motion';
-import { TopBar }         from '@/components/layout/TopBar';
-import { StatusBar }      from '@/components/layout/StatusBar';
-import { VideoPlayer }    from '@/components/video/VideoPlayer';
+import { TopBar }          from '@/components/layout/TopBar';
+import { StatusBar }       from '@/components/layout/StatusBar';
+import { SourceRenderer }  from '@/components/video/SourceRenderer';
 import { OverlayRenderer } from '@/components/overlay/OverlayRenderer';
-import { InfoPanel }      from '@/components/panels/InfoPanel';
-import { useInference }   from '@/hooks/useInference';
+import { InfoPanel }       from '@/components/panels/InfoPanel';
+import { useInference }    from '@/hooks/useInference';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useAppStore } from '@/state/store';
 
 export function Studio() {
-  // Inference loop — returns React state (guaranteed re-render on every result)
+  // Single inference loop — consumes frames from VideoIngestManager
   const inference = useInference();
   useKeyboardShortcuts();
+
+  // Examination workflow state
+  const examPhase    = useAppStore(s => s.examPhase);
+  const frozenResult = useAppStore(s => s.frozenResult);
+  const confirmView  = useAppStore(s => s.confirmView);
+  const reacquire    = useAppStore(s => s.reacquire);
+
+  // When the workflow is frozen, keep the frozen result on screen.
+  // Otherwise show the live inference result.
+  const displayResult = examPhase === 'awaiting_confirmation'
+    ? frozenResult
+    : inference.result;
 
   return (
     <motion.div
@@ -39,18 +53,28 @@ export function Studio() {
 
       {/* Main workspace */}
       <main className="flex flex-1 gap-0 overflow-hidden min-h-0">
+
         {/* ── Video area (75%) ── */}
         <div className="flex-1 relative bg-black overflow-hidden">
           {/* Subtle vignette on video edges */}
-          <div className="absolute inset-0 pointer-events-none z-10"
+          <div
+            className="absolute inset-0 pointer-events-none z-10"
             style={{ boxShadow: 'inset 0 0 60px rgba(0,0,0,0.5)' }}
           />
 
-          <VideoPlayer className="absolute inset-0 w-full h-full" />
+          {/* Active video source (demo / upload / webcam / synthetic) */}
+          <SourceRenderer className="absolute inset-0 w-full h-full" />
 
-          {/* AI overlays sit directly on video */}
+          {/* AI overlays + examination confirmation prompt */}
           <div className="absolute inset-0 z-20">
-            <OverlayRenderer result={inference.result} isInferring={false} />
+            <OverlayRenderer
+              result={displayResult}
+              isInferring={false}
+              examPhase={examPhase}
+              frozenResult={frozenResult}
+              onConfirm={confirmView}
+              onReacquire={reacquire}
+            />
           </div>
         </div>
 
@@ -60,6 +84,7 @@ export function Studio() {
             <InfoPanel inference={inference} />
           </div>
         </aside>
+
       </main>
 
       {/* Status Bar */}
