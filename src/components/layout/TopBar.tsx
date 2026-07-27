@@ -2,7 +2,7 @@
  * FAST-Assist Studio — Top Navigation Bar
  *
  * Displays logo, live indicator, backend status, latency, FPS,
- * current backend label, theme toggle, and fullscreen button.
+ * active provider selector, theme toggle, and fullscreen button.
  */
 
 import { motion } from 'framer-motion';
@@ -16,6 +16,7 @@ import {
 } from 'react-icons/ri';
 import { useAppStore } from '@/state/store';
 import { StatusDot } from '@/components/ui/StatusDot';
+import { ProviderSelector } from '@/components/ui/ProviderSelector';
 import { APP_NAME, APP_VERSION } from '@/config';
 
 export function TopBar() {
@@ -24,8 +25,6 @@ export function TopBar() {
     theme,
     isFullscreen,
     metrics,
-    isMockMode,
-    backendType,
     setTheme,
     setFullscreen,
   } = useAppStore();
@@ -66,17 +65,14 @@ export function TopBar() {
         </div>
       </div>
 
-      {/* Center — Metrics */}
+      {/* Center — Metrics + Provider selector */}
       <div className="hidden md:flex items-center gap-6">
         <Metric label="Latency" value={metrics.inferenceLatency > 0 ? `${metrics.inferenceLatency} ms` : '—'} />
         <Divider />
         <Metric label="FPS" value={metrics.fps > 0 ? String(metrics.fps) : '—'} />
         <Divider />
-        <Metric
-          label="Backend"
-          value={isMockMode ? 'Mock' : backendType.toUpperCase()}
-          highlight={!isMockMode}
-        />
+        {/* Provider selector replaces the static Backend metric */}
+        <ProviderSelector />
         <Divider />
         <StatusDot status={connectionStatus} size="sm" />
       </div>
@@ -88,7 +84,10 @@ export function TopBar() {
           {connectionStatus === 'error' ? (
             <RiSignalWifiErrorLine className="text-red-400" size={16} />
           ) : (
-            <RiWifiLine className={connectionStatus === 'connected' ? 'text-teal-400' : 'text-white/30'} size={16} />
+            <RiWifiLine
+              className={connectionStatus === 'connected' ? 'text-teal-400' : 'text-white/30'}
+              size={16}
+            />
           )}
         </div>
 

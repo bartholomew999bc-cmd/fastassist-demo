@@ -3,6 +3,7 @@
  *
  * Displays structured AI metadata and examination workflow state.
  * RC1 additions: ExamSessionCard (progress + start/reset) and SourceSelector.
+ * RC2 additions: Provider-aware Backend card with fallback/recovery messaging.
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -32,6 +33,7 @@ import {
   isAwaitingStep,
   isAcquiringStep,
 } from '@/exam/sessionMeta';
+import { providerLabel, connectionSublabel } from '@/services/ProviderRegistry';
 import type { InferenceState } from '@/hooks/useInference';
 import type { ExamSessionStep } from '@/types';
 
@@ -42,17 +44,18 @@ interface Props {
 export function InfoPanel({ inference }: Props) {
   // Live inference data via prop (avoids Zustand subscription latency)
   const currentResult = inference.result;
-  const isMockMode    = inference.isMock;
 
   // Examination session state
-  const examStep     = useAppStore(s => s.examStep);
+  const examStep       = useAppStore(s => s.examStep);
   const confirmedViews = useAppStore(s => s.confirmedViews);
-  const startExam    = useAppStore(s => s.startExam);
-  const resetExam    = useAppStore(s => s.resetExam);
+  const startExam      = useAppStore(s => s.startExam);
+  const resetExam      = useAppStore(s => s.resetExam);
 
-  // Static / slowly-changing config from the store
-  const connectionStatus  = useAppStore(s => s.connectionStatus);
-  const inferenceInterval = useAppStore(s => s.inferenceInterval);
+  // Provider / connection state
+  const connectionStatus   = useAppStore(s => s.connectionStatus);
+  const selectedProvider   = useAppStore(s => s.selectedProvider);
+  const hostedAvailable    = useAppStore(s => s.hostedAvailable);
+  const inferenceInterval  = useAppStore(s => s.inferenceInterval);
 
   const isIdle     = examStep === 'idle' || examStep === 'ready';
   const isComplete = examStep === 'complete';
@@ -194,15 +197,55 @@ export function InfoPanel({ inference }: Props) {
         )}
       </AnimatePresence>
 
-      {/* ── System / Backend ────────────────────────────────────────────────── */}
-      <PanelCard icon={<RiServerLine size={13} />} title="Backend">
+      {/* ── Inference Provider ───────────────────────────────────────────────── */}
+      <PanelCard icon={<RiServerLine size={13} />} title="Inference Provider">
         <div className="space-y-2 pt-0.5">
           <StatusDot status={connectionStatus} size="sm" />
-          {isMockMode && (
-            <p className="text-2xs text-amber-400/80">
-              Mock mode — AI endpoint not reachable
-            </p>
-          )}
+
+          {/* Provider name + sub-status */}
+          <InfoRow label="Provider">
+            <span className="value">{providerLabel(selectedProvider)}</span>
+          </InfoRow>
+          <InfoRow label="Status">
+            <span className={`text-2xs font-medium ${
+              connectionStatus === 'connected' ? 'text-teal-400' :
+              connectionStatus === 'fallback'  ? 'text-amber-400' :
+              connectionStatus === 'mock'      ? 'text-amber-400/80' :
+              'text-white/40'
+            }`}>
+              {connectionSublabel(connectionStatus, selectedProvider)}
+            </span>
+          </InfoRow>
+
+          {/* Fallback notice */}
+          <AnimatePresence>
+            {connectionStatus === 'fallback' && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-2xs text-amber-400/75 leading-relaxed"
+              >
+                Hosted AI is unavailable. Mock Provider is serving.
+              </motion.p>
+            )}
+          </AnimatePresence>
+
+          {/* Recovery notice */}
+          <AnimatePresence>
+            {connectionStatus === 'fallback' && hostedAvailable && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-2xs text-teal-400/80 leading-relaxed"
+              >
+                Hosted AI is now reachable. Use the provider selector to switch back.
+              </motion.p>
+            )}
+          </AnimatePresence>
+
+          {/* Performance metrics */}
           {inference.latencyMs > 0 && (
             <InfoRow label="Latency">
               <span className="value tabular-nums text-teal-300">
@@ -255,9 +298,9 @@ function ExamSessionCard({
       {/* 4-window progress track */}
       <div className="flex items-center gap-1.5">
         {EXAM_WINDOWS.map((w, i) => {
-          const isConfirmed = i < confirmedCount;
+          const isConfirmed     = i < confirmedCount;
           const isCurrentActive = i === activeWindowIdx;
-          const isAwaiting = w.awaitStep === examStep;
+          const isAwaiting      = w.awaitStep === examStep;
 
           return (
             <div key={w.shortLabel} className="flex items-center gap-1.5 flex-1">

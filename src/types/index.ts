@@ -26,8 +26,18 @@ export interface InferenceResult {
   backend_latency: number; // ms
 }
 
-// ─── Inference Backend ────────────────────────────────────────────────────────
+// ─── Inference Providers ──────────────────────────────────────────────────────
 
+/**
+ * User-facing provider selection.
+ * Each value maps to a concrete InferenceBackend internally.
+ * Future providers: 'huggingface' | 'openai' | 'gemini' | 'onnx' | 'tensorrt' | 'edge'
+ */
+export type ProviderType = 'hosted' | 'mock';
+
+// ─── Inference Backend (internal) ────────────────────────────────────────────
+
+/** @internal Implementation type used by service classes. */
 export type BackendType = 'rest' | 'mock' | 'huggingface' | 'runpod' | 'openai' | 'tensorrt';
 
 export interface InferenceBackend {
@@ -41,7 +51,16 @@ export interface InferenceBackend {
 
 // ─── Application State ────────────────────────────────────────────────────────
 
-export type ConnectionStatus = 'connected' | 'mock' | 'connecting' | 'error';
+/**
+ * Effective connection status of the inference layer.
+ *  connected  — Hosted AI is selected and reachable.
+ *  fallback   — Hosted AI was selected but is unavailable; Mock Provider is serving.
+ *  mock       — Mock Provider is explicitly selected by the operator.
+ *  connecting — Initial health check in progress.
+ *  error      — Unrecoverable failure.
+ */
+export type ConnectionStatus = 'connected' | 'mock' | 'connecting' | 'error' | 'fallback';
+
 export type AppTheme = 'dark' | 'light';
 
 export interface PerformanceMetrics {
@@ -87,9 +106,25 @@ export interface ConfirmedView {
 }
 
 export interface AppState {
-  // Mode
-  isMockMode: boolean;
+  // ── Provider selection ──────────────────────────────────────────────────────
+  /** The provider the operator has explicitly selected. */
+  selectedProvider: ProviderType;
+  /**
+   * True when the Hosted AI endpoint has been found reachable during a
+   * recovery probe while the system is currently in fallback mode.
+   * Signals to the UI that the operator can switch back manually.
+   */
+  hostedAvailable: boolean;
+
+  // ── Connection / mode (derived from provider state) ─────────────────────────
+  /** Effective connection status — reflects what is actually serving frames. */
   connectionStatus: ConnectionStatus;
+  /**
+   * True when the mock backend is currently serving frames, regardless of
+   * whether that is by selection or automatic fallback.
+   */
+  isMockMode: boolean;
+
   theme: AppTheme;
   isFullscreen: boolean;
 

@@ -1,7 +1,22 @@
 /**
  * FAST-Assist Studio — useInference Hook
  *
- * Drives the frame → AI → state update loop.
+ * Drives the frame → AI → state update loop through the active inference provider.
+ *
+ * Provider behaviour:
+ *   'mock'   — Always serves from the Mock Provider. No health check.
+ *   'hosted' — Health-checks the configured endpoint on mount. If reachable,
+ *              serves from the Hosted AI backend. On any failure, automatically
+ *              falls back to the Mock Provider and sets connectionStatus to
+ *              'fallback'. A recovery probe runs every RECOVERY_CHECK_INTERVAL
+ *              ticks; when the endpoint is found reachable again, hostedAvailable
+ *              is set to true so the UI can prompt the operator to switch back.
+ *
+ * Switching providers:
+ *   The effect restarts when selectedProvider changes, cleanly re-initialising
+ *   the appropriate backend without requiring an application restart.
+ *   Because both providers produce identical InferenceResult shapes the
+ *   examination workflow is never interrupted by a provider switch.
  *
  * Frames are acquired exclusively from VideoIngestManager.acquireLatestFrame()
  * so the inference path is fully decoupled from the DOM.
@@ -17,7 +32,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import type { InferenceResult } from '@/types';
+import type { InferenceResult, ProviderType } from '@/types';
 import { useAppStore } from '@/state/store';
 import { useIngestManager } from '@/ingest/IngestContext';
 import { MockBackend } from '@/services/MockBackend';
@@ -51,7 +66,15 @@ const INITIAL: InferenceState = {
  */
 const MIN_ACQUISITION_FRAMES = 4;
 
-// Module-level mock backend — one instance shared across re-mounts
+/**
+ * How many inference ticks to wait between Hosted AI recovery probes
+ * while the system is running in fallback mode.
+ * At a 1 200 ms interval this is roughly every 18 seconds.
+ */
+const RECOVERY_CHECK_INTERVAL = 15;
+
+// Module-level mock backend — one instance shared across re-mounts so scenario
+// cycling state and the JSON cache are preserved across provider switches.
 const mockBackend = new MockBackend();
 
 export function useInference(): InferenceState {
@@ -61,47 +84,86 @@ export function useInference(): InferenceState {
   // Ingest manager — the single source of frames
   const manager = useIngestManager();
 
+  // Provider selection — changing this restarts the effect
+  const selectedProvider = useAppStore(s => s.selectedProvider);
+
   // Zustand actions (stable references, safe as effect deps)
   const setMockMode         = useAppStore(s => s.setMockMode);
   const setConnectionStatus = useAppStore(s => s.setConnectionStatus);
   const updateMetrics       = useAppStore(s => s.updateMetrics);
   const setResult           = useAppStore(s => s.setResult);
   const freezeOnResult      = useAppStore(s => s.freezeOnResult);
+  const setHostedAvailable  = useAppStore(s => s.setHostedAvailable);
 
   useEffect(() => {
+    // Create a fresh REST backend for this effect run so endpoint config is
+    // always up to date if it changed between mounts.
     const restBackend = new RESTBackend(
       useAppStore.getState().endpointUrl,
       4000,
     );
 
-    let isMockLocal   = true;
+    // Which source is currently serving frames.
+    // Starts pessimistic; updated by health check or first failed tick.
+    let effectiveSource: ProviderType = 'mock';
+    let inFallback                    = false;
+    let running                       = true;
+
     let fpsCount      = 0;
     let lastFpsTs     = Date.now();
     let droppedFrames = 0;
     let frameNumber   = 0;
     let smoothedMs    = 0;
-    let running       = true;
+    let recoveryCount = 0;
 
-    // Per-window acquisition frame counter — reset whenever the exam step
-    // enters a new acquiring_* state.
-    let lastExamStep: ExamSessionStep     = useAppStore.getState().examStep;
-    let acquisitionFrameCount             = 0;
+    // Per-window acquisition frame counter — reset when the exam step changes.
+    let lastExamStep: ExamSessionStep = useAppStore.getState().examStep;
+    let acquisitionFrameCount         = 0;
 
-    // ── Health check ──────────────────────────────────────────────────────────
-    setConnectionStatus('connecting');
-    restBackend.healthCheck()
-      .then(ok => {
-        if (!running) return;
-        isMockLocal = !ok;
-        setConnectionStatus(ok ? 'connected' : 'mock');
-        setMockMode(!ok);
-      })
-      .catch(() => {
-        setConnectionStatus('mock');
-        setMockMode(true);
-      });
+    // ── Provider initialisation ───────────────────────────────────────────────
+
+    if (selectedProvider === 'mock') {
+      // Mock Provider explicitly selected — skip health check entirely.
+      effectiveSource = 'mock';
+      inFallback      = false;
+      setConnectionStatus('mock');
+      setMockMode(true);
+      setHostedAvailable(false);
+      logger.info('useInference', 'Mock Provider selected — offline demonstration mode');
+    } else {
+      // Hosted AI selected — probe the endpoint before the first tick.
+      setConnectionStatus('connecting');
+      setHostedAvailable(false);
+
+      restBackend.healthCheck()
+        .then(ok => {
+          if (!running) return;
+          if (ok) {
+            effectiveSource = 'hosted';
+            inFallback      = false;
+            setConnectionStatus('connected');
+            setMockMode(false);
+            logger.info('useInference', 'Hosted AI connected');
+          } else {
+            effectiveSource = 'mock';
+            inFallback      = true;
+            setConnectionStatus('fallback');
+            setMockMode(true);
+            logger.warn('useInference', 'Hosted AI unreachable — fallback to Mock Provider');
+          }
+        })
+        .catch(() => {
+          if (!running) return;
+          effectiveSource = 'mock';
+          inFallback      = true;
+          setConnectionStatus('fallback');
+          setMockMode(true);
+          logger.warn('useInference', 'Hosted AI health check failed — fallback to Mock Provider');
+        });
+    }
 
     // ── Inference tick ────────────────────────────────────────────────────────
+
     const tick = async () => {
       if (!running) return;
 
@@ -145,20 +207,19 @@ export function useInference(): InferenceState {
       acquisitionFrameCount++;
       const t0 = performance.now();
 
-      const pushResult = (result: InferenceResult, mock: boolean) => {
+      const pushResult = (result: InferenceResult, usedMock: boolean) => {
         if (!running) return;
         const latencyMs = Math.round(performance.now() - t0);
         smoothedMs = smoothedMs === 0
           ? latencyMs
           : Math.round(ema(smoothedMs, latencyMs, config.confidenceSmoothFactor));
 
-        // Primary update: React state — guaranteed to trigger re-renders
         const next: InferenceState = {
           result,
           latencyMs: smoothedMs,
           frameNumber,
           fps: stateRef.current.fps,
-          isMock: mock,
+          isMock: usedMock,
         };
         stateRef.current = next;
         setState(next);
@@ -166,18 +227,14 @@ export function useInference(): InferenceState {
         // Mirror to Zustand for TopBar / StatusBar / InfoPanel
         setResult(result, smoothedMs);
         updateMetrics({ inferenceLatency: smoothedMs, frameNumber });
+        setMockMode(usedMock);
 
-        if (mock !== isMockLocal) {
-          isMockLocal = mock;
-          setMockMode(mock);
-          setConnectionStatus(mock ? 'mock' : 'connected');
-        }
+        logger.debug(
+          'useInference',
+          `Frame ${frameNumber} via ${usedMock ? 'mock' : 'hosted'} — ${latencyMs}ms`,
+        );
 
-        logger.debug('useInference', `Frame ${frameNumber} via ${mock ? 'mock' : 'REST'} — ${latencyMs}ms`);
-
-        // ── Examination workflow: freeze on threshold ──────────────────────
-        // Only freeze after MIN_ACQUISITION_FRAMES to feel like genuine
-        // acquisition work rather than an immediate confirmation prompt.
+        // ── Examination workflow: freeze on threshold ───────────────────────
         const meetsThreshold =
           result.confidence      >= config.confirmConfidenceThreshold &&
           result.quality.overall >= config.confirmQualityThreshold   &&
@@ -188,16 +245,72 @@ export function useInference(): InferenceState {
         }
       };
 
-      // Try REST, fall back to mock
-      try {
-        const result = await restBackend.infer(frame.dataUrl);
-        pushResult(result, false);
-      } catch {
+      // ── Provider dispatch ─────────────────────────────────────────────────
+
+      if (selectedProvider === 'mock') {
+        // Mock Provider explicitly selected — always use mock, no fallback needed.
         try {
           const result = await mockBackend.infer(frame.dataUrl);
           pushResult(result, true);
         } catch (e) {
-          logger.error('useInference', 'Both backends failed', e);
+          logger.error('useInference', 'Mock Provider failed', e);
+        }
+        return;
+      }
+
+      // Hosted AI selected
+      if (effectiveSource === 'hosted') {
+        try {
+          const result = await restBackend.infer(frame.dataUrl);
+          pushResult(result, false);
+        } catch {
+          // Hosted AI failed during normal operation — switch to fallback.
+          effectiveSource = 'mock';
+          inFallback      = true;
+          recoveryCount   = 0;
+          setConnectionStatus('fallback');
+          setMockMode(true);
+          setHostedAvailable(false);
+          logger.warn('useInference', 'Hosted AI failed during acquisition — switching to fallback');
+
+          // Serve this tick from mock so the exam continues uninterrupted.
+          try {
+            const result = await mockBackend.infer(frame.dataUrl);
+            pushResult(result, true);
+          } catch (e) {
+            logger.error('useInference', 'Mock Provider also failed', e);
+          }
+        }
+        return;
+      }
+
+      // In fallback mode — serve from mock and periodically probe hosted.
+      if (inFallback) {
+        recoveryCount++;
+        if (recoveryCount >= RECOVERY_CHECK_INTERVAL) {
+          recoveryCount = 0;
+          // Fire-and-forget probe — does not interrupt the current tick.
+          restBackend.healthCheck()
+            .then(ok => {
+              if (!running || selectedProvider !== 'hosted') return;
+              if (ok) {
+                setHostedAvailable(true);
+                logger.info(
+                  'useInference',
+                  'Hosted AI is now reachable — operator can switch back manually',
+                );
+              } else {
+                setHostedAvailable(false);
+              }
+            })
+            .catch(() => { /* silent — will retry next interval */ });
+        }
+
+        try {
+          const result = await mockBackend.infer(frame.dataUrl);
+          pushResult(result, true);
+        } catch (e) {
+          logger.error('useInference', 'Mock Provider failed during fallback', e);
         }
       }
     };
@@ -210,8 +323,18 @@ export function useInference(): InferenceState {
       running = false;
       clearInterval(id);
     };
+  // selectedProvider is a dep — the effect restarts when the operator switches.
   // manager is stable (singleton from context); Zustand setters are stable refs.
-  }, [manager, setMockMode, setConnectionStatus, updateMetrics, setResult, freezeOnResult]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ // eslint-disable-line react-hooks/exhaustive-deps
+    manager,
+    selectedProvider,
+    setMockMode,
+    setConnectionStatus,
+    updateMetrics,
+    setResult,
+    freezeOnResult,
+    setHostedAvailable,
+  ]);
 
   return state;
 }

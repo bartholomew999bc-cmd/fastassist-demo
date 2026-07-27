@@ -7,43 +7,39 @@ import { useAppStore } from '@/state/store';
 import { APP_VERSION } from '@/config';
 import { formatLatency } from '@/utils/smoothing';
 import { STEP_LABELS, isAcquiringStep, isAwaitingStep } from '@/exam/sessionMeta';
+import { providerLabel, connectionSublabel, connectionColor } from '@/services/ProviderRegistry';
 
 export function StatusBar() {
   const time = useClock();
-  const { connectionStatus, isMockMode, backendType, metrics, examStep } = useAppStore();
+  const { connectionStatus, selectedProvider, metrics, examStep } = useAppStore();
 
-  const backendLabel = isMockMode ? 'Mock Backend' : `${backendType.toUpperCase()} Backend`;
+  // Provider-aware status labels
+  const primaryLabel = providerLabel(selectedProvider);
+  const subLabel     = connectionSublabel(connectionStatus, selectedProvider);
+  const color        = connectionColor(connectionStatus);
 
-  const showExamStep = examStep !== 'idle' && examStep !== 'ready';
+  const showExamStep  = examStep !== 'idle' && examStep !== 'ready';
   const examStepLabel = STEP_LABELS[examStep];
   const examColor: 'teal' | 'amber' | 'neutral' =
-    isAwaitingStep(examStep) ? 'amber' :
-    isAcquiringStep(examStep) ? 'teal' :
-    examStep === 'complete' ? 'teal' : 'neutral';
+    isAwaitingStep(examStep)  ? 'amber' :
+    isAcquiringStep(examStep) ? 'teal'  :
+    examStep === 'complete'   ? 'teal'  : 'neutral';
 
   return (
     <footer className="flex items-center justify-between px-5 h-8 bg-surface-950 border-t border-white/5 text-2xs text-white/25 font-medium select-none">
       <div className="flex items-center gap-4">
-        <StatusPill
-          color={
-            connectionStatus === 'connected'  ? 'teal' :
-            connectionStatus === 'mock'       ? 'amber' :
-            connectionStatus === 'connecting' ? 'neutral' : 'red'
-          }
-          label={backendLabel}
-        />
+        {/* Provider + connection status */}
+        <StatusPill color={color} label={primaryLabel} />
+        <span className="hidden md:block text-white/18">·</span>
+        <span className="hidden md:block text-white/35">{subLabel}</span>
+
+        {/* Exam step */}
         {showExamStep && (
           <>
             <span className="hidden sm:block">│</span>
             <StatusPill color={examColor} label={examStepLabel} />
           </>
         )}
-        <span className="hidden md:block">│</span>
-        <span className="hidden md:block">
-          {connectionStatus === 'connected'  ? 'Connected' :
-           connectionStatus === 'mock'       ? 'Mock Mode' :
-           connectionStatus === 'connecting' ? 'Connecting…' : 'Error'}
-        </span>
       </div>
 
       <div className="flex items-center gap-4">

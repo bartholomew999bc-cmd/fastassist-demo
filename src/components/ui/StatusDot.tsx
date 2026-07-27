@@ -10,18 +10,20 @@ interface Props {
 }
 
 const CONFIG: Record<ConnectionStatus, { color: string; label: string; pulse: boolean }> = {
-  connected:  { color: 'bg-teal-400',   label: 'Connected',  pulse: true },
-  mock:       { color: 'bg-amber-400',  label: 'Mock Mode',  pulse: true },
-  connecting: { color: 'bg-white/40',   label: 'Connecting', pulse: true },
-  error:      { color: 'bg-red-500',    label: 'Error',      pulse: false },
+  connected:  { color: 'bg-teal-400',  label: 'Connected',  pulse: true  },
+  mock:       { color: 'bg-amber-400', label: 'Mock Mode',  pulse: true  },
+  fallback:   { color: 'bg-amber-400', label: 'Fallback',   pulse: true  },
+  connecting: { color: 'bg-white/40',  label: 'Connecting', pulse: true  },
+  error:      { color: 'bg-red-500',   label: 'Error',      pulse: false },
 };
 
 export function StatusDot({ status, size = 'md' }: Props) {
-  const cfg   = CONFIG[status];
+  const cfg   = CONFIG[status] ?? CONFIG.connecting;
   const dotSz = size === 'sm' ? 'w-1.5 h-1.5' : 'w-2 h-2';
   const glow  =
-    status === 'connected'  ? 'shadow-[0_0_6px_rgba(20,184,166,0.8)]' :
-    status === 'mock'       ? 'shadow-[0_0_6px_rgba(251,191,36,0.8)]' : '';
+    status === 'connected' ? 'shadow-[0_0_6px_rgba(20,184,166,0.8)]' :
+    status === 'mock'      ? 'shadow-[0_0_6px_rgba(251,191,36,0.8)]'  :
+    status === 'fallback'  ? 'shadow-[0_0_6px_rgba(251,191,36,0.6)]'  : '';
 
   return (
     <div className="flex items-center gap-1.5">

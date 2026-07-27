@@ -64,17 +64,41 @@ npm run build
 # Cloudflare Pages, GitHub Pages, Vercel, AWS S3, Nginx, cPanel, etc.
 ```
 
+## Inference Providers (RC2)
+
+FAST-Assist Studio uses a provider-based inference architecture. All providers implement the same `InferenceBackend` interface and produce identical `InferenceResult` shapes — the examination workflow is identical regardless of which provider is active.
+
+### Available Providers
+
+| Provider      | Label          | Behaviour                                                         |
+|---------------|----------------|-------------------------------------------------------------------|
+| `hosted`      | Hosted AI      | POSTs frames to the configured endpoint; auto-falls back to mock. |
+| `mock`        | Mock Provider  | Cycles pre-authored JSON scenarios from `/public/mock/`.          |
+
+### Automatic Fallback
+
+When Hosted AI is selected but the endpoint is unreachable, the system automatically falls back to the Mock Provider and sets connection status to `Fallback Active`. The examination continues without interruption. A background recovery probe runs every ~18 seconds; when the endpoint is found reachable again a notification appears in the Provider Selector and Info Panel so the operator can switch back manually.
+
+### Adding a Future Provider
+
+1. Add the new `ProviderType` value to `src/types/index.ts`.
+2. Implement `InferenceBackend` in `src/services/`.
+3. Add a descriptor to `PROVIDER_REGISTRY` in `src/services/ProviderRegistry.ts`.
+4. Map the provider to a backend in `src/hooks/useInference.ts`.
+
+No other files need to change.
+
 ## Configuration
 
 All values are set via environment variables or `src/config/index.ts`:
 
-| Variable                  | Default               | Description                        |
-|---------------------------|-----------------------|------------------------------------|
-| `VITE_INFERENCE_ENDPOINT` | `/infer`              | AI backend URL                     |
-| `VITE_INFERENCE_INTERVAL` | `2000`                | Frame capture interval (ms)        |
-| `VITE_VIDEO_PATH`         | `/videos/ultrasound.mp4` | Demo video path                 |
-| `VITE_DEMO_MODE`          | `false`               | Force mock mode                    |
-| `VITE_DEBUG`              | `false`               | Verbose logging                    |
+| Variable                  | Default               | Description                                              |
+|---------------------------|-----------------------|----------------------------------------------------------|
+| `VITE_PROVIDER`           | `hosted`              | Default inference provider (`hosted` or `mock`)          |
+| `VITE_INFERENCE_ENDPOINT` | `/infer`              | Hosted AI backend URL                                    |
+| `VITE_INFERENCE_INTERVAL` | `1200`                | Frame capture interval (ms)                              |
+| `VITE_VIDEO_PATH`         | `/videos/ultrasound.mp4` | Demo video path                                       |
+| `VITE_DEBUG`              | `false`               | Verbose logging                                          |
 
 ## Keyboard Shortcuts
 

@@ -14,6 +14,7 @@ import type {
   PerformanceMetrics,
   ExamSessionStep,
   ConfirmedView,
+  ProviderType,
 } from '@/types';
 import { config } from '@/config';
 import { ema } from '@/utils/smoothing';
@@ -36,6 +37,21 @@ interface AppActions {
   setBackendType(type: BackendType): void;
   setInferenceInterval(ms: number): void;
   resetMetrics(): void;
+
+  // ── Provider selection ──────────────────────────────────────────────────────
+  /**
+   * Switch the active inference provider.
+   * The inference hook watches this value and reinitialises when it changes,
+   * so provider switching takes effect on the next inference cycle without
+   * requiring an application restart.
+   */
+  setSelectedProvider(provider: ProviderType): void;
+  /**
+   * Set by the inference hook when a recovery probe finds the hosted AI
+   * endpoint reachable while the system is currently running in fallback mode.
+   * Signals to the UI that the operator can manually switch back to Hosted AI.
+   */
+  setHostedAvailable(available: boolean): void;
 
   // ── Examination session ─────────────────────────────────────────────────────
   /**
@@ -74,8 +90,15 @@ const DEFAULT_METRICS: PerformanceMetrics = {
 
 export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   // ── Initial State ──────────────────────────────────────────────────────────
-  isMockMode:        false,
+
+  // Provider
+  selectedProvider:  config.defaultProvider,
+  hostedAvailable:   false,
+
+  // Connection (derived by the inference hook from provider state)
+  isMockMode:        config.defaultProvider === 'mock',
   connectionStatus:  'connecting',
+
   theme:             config.theme,
   isFullscreen:      false,
 
@@ -122,10 +145,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   setConnectionStatus(status) { set({ connectionStatus: status }); },
 
   setMockMode(isMock) {
-    set({
-      isMockMode:       isMock,
-      connectionStatus: isMock ? 'mock' : 'connected',
-    });
+    set({ isMockMode: isMock });
   },
 
   setTheme(theme) {
@@ -145,6 +165,19 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   setBackendType(type) { set({ backendType: type }); },
   setInferenceInterval(ms) { set({ inferenceInterval: ms }); },
   resetMetrics() { set({ metrics: { ...DEFAULT_METRICS } }); },
+
+  // ── Provider Actions ───────────────────────────────────────────────────────
+
+  setSelectedProvider(provider) {
+    set({
+      selectedProvider: provider,
+      // Reset connection status; the hook will set it on reinit
+      connectionStatus: 'connecting',
+      hostedAvailable:  false,
+    });
+  },
+
+  setHostedAvailable(available) { set({ hostedAvailable: available }); },
 
   // ── Examination Session Actions ────────────────────────────────────────────
 
@@ -209,13 +242,15 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 }));
 
 // ── Convenience selectors ─────────────────────────────────────────────────────
-export const selectResult         = (s: AppState) => s.currentResult;
-export const selectMetrics        = (s: AppState) => s.metrics;
-export const selectStatus         = (s: AppState) => s.connectionStatus;
-export const selectIsMock         = (s: AppState) => s.isMockMode;
-export const selectTheme          = (s: AppState) => s.theme;
-export const selectIsFullscreen   = (s: AppState) => s.isFullscreen;
-export const selectExamPhase      = (s: AppState) => s.examPhase;
-export const selectExamStep       = (s: AppState) => s.examStep;
-export const selectFrozenResult   = (s: AppState) => s.frozenResult;
-export const selectConfirmedViews = (s: AppState) => s.confirmedViews;
+export const selectResult           = (s: AppState) => s.currentResult;
+export const selectMetrics          = (s: AppState) => s.metrics;
+export const selectStatus           = (s: AppState) => s.connectionStatus;
+export const selectIsMock           = (s: AppState) => s.isMockMode;
+export const selectTheme            = (s: AppState) => s.theme;
+export const selectIsFullscreen     = (s: AppState) => s.isFullscreen;
+export const selectExamPhase        = (s: AppState) => s.examPhase;
+export const selectExamStep         = (s: AppState) => s.examStep;
+export const selectFrozenResult     = (s: AppState) => s.frozenResult;
+export const selectConfirmedViews   = (s: AppState) => s.confirmedViews;
+export const selectSelectedProvider = (s: AppState) => s.selectedProvider;
+export const selectHostedAvailable  = (s: AppState) => s.hostedAvailable;
