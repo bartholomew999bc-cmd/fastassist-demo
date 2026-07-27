@@ -151,6 +151,10 @@ export interface AppState {
   examStep:       ExamSessionStep;
   frozenResult:   InferenceResult | null;
   confirmedViews: ConfirmedView[];
+
+  // ── Developer inspector ─────────────────────────────────────────────────────
+  /** Whether the Inspector drawer is currently expanded. */
+  inspectorOpen: boolean;
 }
 
 // ─── Log Entry ────────────────────────────────────────────────────────────────

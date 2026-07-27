@@ -53,6 +53,10 @@ interface AppActions {
    */
   setHostedAvailable(available: boolean): void;
 
+  // ── Developer inspector ─────────────────────────────────────────────────────
+  /** Toggle or explicitly set the Inspector panel open/closed. */
+  setInspectorOpen(open: boolean): void;
+
   // ── Examination session ─────────────────────────────────────────────────────
   /**
    * Begin the FAST examination sequence from the RUQ window.
@@ -122,6 +126,9 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   frozenResult:   null,
   confirmedViews: [],
 
+  // Developer inspector — closed by default
+  inspectorOpen: false,
+
   // ── Inference Actions ──────────────────────────────────────────────────────
 
   setResult(result, latencyMs) {
@@ -178,6 +185,8 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   setHostedAvailable(available) { set({ hostedAvailable: available }); },
+
+  setInspectorOpen(open) { set({ inspectorOpen: open }); },
 
   // ── Examination Session Actions ────────────────────────────────────────────
 

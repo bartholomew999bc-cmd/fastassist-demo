@@ -5,18 +5,22 @@
  *
  * Provider behaviour:
  *   'mock'   — Always serves from the Mock Provider. No health check.
- *   'hosted' — Health-checks the configured endpoint on mount. If reachable,
- *              serves from the Hosted AI backend. On any failure, automatically
- *              falls back to the Mock Provider and sets connectionStatus to
- *              'fallback'. A recovery probe runs every RECOVERY_CHECK_INTERVAL
- *              ticks; when the endpoint is found reachable again, hostedAvailable
- *              is set to true so the UI can prompt the operator to switch back.
+ *   'hosted' — Health-checks QwenVLProvider on mount. If reachable,
+ *              serves from Qwen2.5-VL via OpenRouter. On any failure,
+ *              automatically falls back to Mock Provider and sets
+ *              connectionStatus to 'fallback'. A recovery probe runs every
+ *              RECOVERY_CHECK_INTERVAL ticks; when the endpoint becomes
+ *              reachable again, hostedAvailable is set so the UI can prompt.
  *
  * Switching providers:
  *   The effect restarts when selectedProvider changes, cleanly re-initialising
  *   the appropriate backend without requiring an application restart.
  *   Because both providers produce identical InferenceResult shapes the
  *   examination workflow is never interrupted by a provider switch.
+ *
+ * Session log:
+ *   Each successful hosted inference call appends a FullInferenceResult to
+ *   the inferenceLog store, which the Inspector panel reads.
  *
  * Frames are acquired exclusively from VideoIngestManager.acquireLatestFrame()
  * so the inference path is fully decoupled from the DOM.
@@ -33,13 +37,14 @@
 
 import { useState, useEffect, useRef } from 'react';
 import type { InferenceResult, ProviderType } from '@/types';
-import { useAppStore } from '@/state/store';
-import { useIngestManager } from '@/ingest/IngestContext';
-import { MockBackend } from '@/services/MockBackend';
-import { RESTBackend } from '@/services/RESTBackend';
-import { ema } from '@/utils/smoothing';
-import { logger } from '@/utils/logger';
-import { config } from '@/config';
+import { useAppStore }       from '@/state/store';
+import { useIngestManager }  from '@/ingest/IngestContext';
+import { MockBackend }       from '@/services/MockBackend';
+import { QwenVLProvider }    from '@/services/QwenVLProvider';
+import { useInferenceLog }   from '@/state/inferenceLog';
+import { ema }               from '@/utils/smoothing';
+import { logger }            from '@/utils/logger';
+import { config }            from '@/config';
 import { isAcquiringStep, scenarioForStep } from '@/exam/sessionMeta';
 import type { ExamSessionStep } from '@/types';
 
@@ -73,9 +78,10 @@ const MIN_ACQUISITION_FRAMES = 4;
  */
 const RECOVERY_CHECK_INTERVAL = 15;
 
-// Module-level mock backend — one instance shared across re-mounts so scenario
-// cycling state and the JSON cache are preserved across provider switches.
+// Module-level backends — one instance each shared across re-mounts so state
+// (scenario cycling, JSON cache) is preserved across provider switches.
 const mockBackend = new MockBackend();
+const qwenProvider = new QwenVLProvider();
 
 export function useInference(): InferenceState {
   const [state, setState]   = useState<InferenceState>(INITIAL);
@@ -95,14 +101,10 @@ export function useInference(): InferenceState {
   const freezeOnResult      = useAppStore(s => s.freezeOnResult);
   const setHostedAvailable  = useAppStore(s => s.setHostedAvailable);
 
-  useEffect(() => {
-    // Create a fresh REST backend for this effect run so endpoint config is
-    // always up to date if it changed between mounts.
-    const restBackend = new RESTBackend(
-      useAppStore.getState().endpointUrl,
-      4000,
-    );
+  // Inference log — append full results from hosted provider
+  const appendLog = useInferenceLog(s => s.append);
 
+  useEffect(() => {
     // Which source is currently serving frames.
     // Starts pessimistic; updated by health check or first failed tick.
     let effectiveSource: ProviderType = 'mock';
@@ -131,11 +133,11 @@ export function useInference(): InferenceState {
       setHostedAvailable(false);
       logger.info('useInference', 'Mock Provider selected — offline demonstration mode');
     } else {
-      // Hosted AI selected — probe the endpoint before the first tick.
+      // Hosted AI selected — probe before the first tick.
       setConnectionStatus('connecting');
       setHostedAvailable(false);
 
-      restBackend.healthCheck()
+      qwenProvider.healthCheck()
         .then(ok => {
           if (!running) return;
           if (ok) {
@@ -143,13 +145,13 @@ export function useInference(): InferenceState {
             inFallback      = false;
             setConnectionStatus('connected');
             setMockMode(false);
-            logger.info('useInference', 'Hosted AI connected');
+            logger.info('useInference', 'Qwen2.5-VL (OpenRouter) connected');
           } else {
             effectiveSource = 'mock';
             inFallback      = true;
             setConnectionStatus('fallback');
             setMockMode(true);
-            logger.warn('useInference', 'Hosted AI unreachable — fallback to Mock Provider');
+            logger.warn('useInference', 'Qwen2.5-VL unreachable — fallback to Mock Provider');
           }
         })
         .catch(() => {
@@ -258,11 +260,13 @@ export function useInference(): InferenceState {
         return;
       }
 
-      // Hosted AI selected
+      // Hosted AI selected (Qwen2.5-VL)
       if (effectiveSource === 'hosted') {
         try {
-          const result = await restBackend.infer(frame.dataUrl);
-          pushResult(result, false);
+          const full = await qwenProvider.inferFull(frame.dataUrl);
+          // Log to Inspector session log
+          appendLog(frameNumber, full);
+          pushResult(full.metadata, false);
         } catch {
           // Hosted AI failed during normal operation — switch to fallback.
           effectiveSource = 'mock';
@@ -271,7 +275,7 @@ export function useInference(): InferenceState {
           setConnectionStatus('fallback');
           setMockMode(true);
           setHostedAvailable(false);
-          logger.warn('useInference', 'Hosted AI failed during acquisition — switching to fallback');
+          logger.warn('useInference', 'Qwen2.5-VL failed during acquisition — switching to fallback');
 
           // Serve this tick from mock so the exam continues uninterrupted.
           try {
@@ -290,7 +294,7 @@ export function useInference(): InferenceState {
         if (recoveryCount >= RECOVERY_CHECK_INTERVAL) {
           recoveryCount = 0;
           // Fire-and-forget probe — does not interrupt the current tick.
-          restBackend.healthCheck()
+          qwenProvider.healthCheck()
             .then(ok => {
               if (!running || selectedProvider !== 'hosted') return;
               if (ok) {
@@ -334,6 +338,7 @@ export function useInference(): InferenceState {
     setResult,
     freezeOnResult,
     setHostedAvailable,
+    appendLog,
   ]);
 
   return state;

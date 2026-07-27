@@ -15,12 +15,13 @@
  */
 
 import { motion } from 'framer-motion';
-import { TopBar }          from '@/components/layout/TopBar';
-import { StatusBar }       from '@/components/layout/StatusBar';
-import { SourceRenderer }  from '@/components/video/SourceRenderer';
-import { OverlayRenderer } from '@/components/overlay/OverlayRenderer';
-import { InfoPanel }       from '@/components/panels/InfoPanel';
-import { useInference }    from '@/hooks/useInference';
+import { TopBar }            from '@/components/layout/TopBar';
+import { StatusBar }         from '@/components/layout/StatusBar';
+import { SourceRenderer }    from '@/components/video/SourceRenderer';
+import { OverlayRenderer }   from '@/components/overlay/OverlayRenderer';
+import { InfoPanel }         from '@/components/panels/InfoPanel';
+import { InspectorPanel }    from '@/components/panels/InspectorPanel';
+import { useInference }      from '@/hooks/useInference';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAppStore } from '@/state/store';
 
@@ -95,6 +96,9 @@ export function Studio() {
 
       {/* Status Bar */}
       <StatusBar />
+
+      {/* Inspector drawer — collapsible, dev-only, zero workflow impact */}
+      <InspectorPanel />
     </motion.div>
   );
 }

@@ -13,6 +13,7 @@ import {
   RiSunLine,
   RiWifiLine,
   RiSignalWifiErrorLine,
+  RiCodeBoxLine,
 } from 'react-icons/ri';
 import { useAppStore } from '@/state/store';
 import { StatusDot } from '@/components/ui/StatusDot';
@@ -24,9 +25,11 @@ export function TopBar() {
     connectionStatus,
     theme,
     isFullscreen,
+    inspectorOpen,
     metrics,
     setTheme,
     setFullscreen,
+    setInspectorOpen,
   } = useAppStore();
 
   const toggleFullscreen = () => {
@@ -90,6 +93,21 @@ export function TopBar() {
             />
           )}
         </div>
+
+        {/* Inspector toggle */}
+        <motion.button
+          whileTap={{ scale: 0.92 }}
+          onClick={() => setInspectorOpen(!inspectorOpen)}
+          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
+            inspectorOpen
+              ? 'text-teal-400 bg-teal-500/10'
+              : 'text-white/40 hover:text-white hover:bg-white/5'
+          }`}
+          title="Toggle Inference Inspector"
+          aria-label="Toggle Inference Inspector"
+        >
+          <RiCodeBoxLine size={15} />
+        </motion.button>
 
         {/* Theme toggle */}
         <motion.button
