@@ -3,6 +3,17 @@
  *
  * All runtime constants are defined here.
  * No hardcoded values in components or services.
+ *
+ * Environment variables (VITE_ prefix, set at build time):
+ *   VITE_OPENROUTER_API_KEY  — OpenRouter API key; absent → Mock Mode
+ *   VITE_PROVIDER            — Default provider: 'hosted' | 'mock'
+ *   VITE_INFERENCE_ENDPOINT  — REST endpoint URL (RESTBackend only)
+ *   VITE_INFERENCE_INTERVAL  — Frame capture interval in ms
+ *   VITE_VIDEO_PATH          — Path to demo video in /public
+ *   VITE_THEME               — Default theme: 'dark' | 'light'
+ *   VITE_DEBUG               — Enable verbose logging: 'true' | 'false'
+ *
+ * See .env.example for full documentation.
  */
 
 import type { BackendType, AppTheme, ProviderType } from '@/types';
@@ -44,10 +55,20 @@ export interface AppConfig {
    * Both this AND confirmConfidenceThreshold must be met.
    */
   confirmQualityThreshold: number;
+
+  /**
+   * True when VITE_OPENROUTER_API_KEY is present at build time.
+   * Used to show a subtle "No API key" indicator in the UI.
+   * Never exposes the key value itself.
+   */
+  hasHostedAI: boolean;
 }
 
+const _provider: ProviderType = (import.meta.env.VITE_PROVIDER as ProviderType) ?? 'hosted';
+const _apiKey: string          = import.meta.env.VITE_OPENROUTER_API_KEY ?? '';
+
 export const config: AppConfig = {
-  defaultProvider:   (import.meta.env.VITE_PROVIDER as ProviderType) ?? 'hosted',
+  defaultProvider:   _provider,
   endpointUrl:       import.meta.env.VITE_INFERENCE_ENDPOINT ?? '/infer',
   inferenceInterval: import.meta.env.VITE_INFERENCE_INTERVAL
                        ? Number(import.meta.env.VITE_INFERENCE_INTERVAL)
@@ -57,15 +78,16 @@ export const config: AppConfig = {
   theme:             (import.meta.env.VITE_THEME as AppTheme) ?? 'dark',
   debug:             import.meta.env.VITE_DEBUG        === 'true',
   // Internal: 'hosted' maps to 'rest'; 'mock' maps to 'mock'
-  defaultBackend:    ((import.meta.env.VITE_PROVIDER as ProviderType) ?? 'hosted') === 'mock'
-                       ? 'mock'
-                       : 'rest',
+  defaultBackend:    _provider === 'mock' ? 'mock' : 'rest',
   confidenceSmoothFactor: 0.3,
   maxLogEntries:          500,
 
   // Examination workflow thresholds
   confirmConfidenceThreshold: 0.85,
   confirmQualityThreshold:    0.75,
+
+  // Presence-only check — never expose the key value
+  hasHostedAI: _apiKey.length > 0,
 };
 
 /** Application version — kept in sync with package.json */

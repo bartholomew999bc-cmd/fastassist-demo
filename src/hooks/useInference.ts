@@ -1,5 +1,5 @@
 /**
- * FAST-Assist Studio — useInference Hook
+ * FAST-Assist Studio — useInference Hook (RC4)
  *
  * Drives the frame → AI → state update loop through the active inference provider.
  *
@@ -33,6 +33,14 @@
  *     window so results are always contextually appropriate.
  *   • A minimum acquisition frame count must be reached before the workflow
  *     will freeze, preventing an instant confirm on the very first frame.
+ *
+ * Reliability guarantees (RC4):
+ *   • QwenVLProvider retries once on transient failures automatically.
+ *   • The application never freezes: every inference tick has a hard 25s
+ *     timeout; if exceeded, the tick falls back to mock for that frame.
+ *   • No unhandled promise rejections — all async paths are wrapped.
+ *   • isInferring is set to true before and false after each hosted call
+ *     so the UI can show a meaningful status indicator.
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -80,7 +88,7 @@ const RECOVERY_CHECK_INTERVAL = 15;
 
 // Module-level backends — one instance each shared across re-mounts so state
 // (scenario cycling, JSON cache) is preserved across provider switches.
-const mockBackend = new MockBackend();
+const mockBackend  = new MockBackend();
 const qwenProvider = new QwenVLProvider();
 
 export function useInference(): InferenceState {
@@ -98,6 +106,7 @@ export function useInference(): InferenceState {
   const setConnectionStatus = useAppStore(s => s.setConnectionStatus);
   const updateMetrics       = useAppStore(s => s.updateMetrics);
   const setResult           = useAppStore(s => s.setResult);
+  const setInferring        = useAppStore(s => s.setInferring);
   const freezeOnResult      = useAppStore(s => s.freezeOnResult);
   const setHostedAvailable  = useAppStore(s => s.setHostedAvailable);
 
@@ -211,6 +220,7 @@ export function useInference(): InferenceState {
 
       const pushResult = (result: InferenceResult, usedMock: boolean) => {
         if (!running) return;
+        setInferring(false);
         const latencyMs = Math.round(performance.now() - t0);
         smoothedMs = smoothedMs === 0
           ? latencyMs
@@ -233,7 +243,7 @@ export function useInference(): InferenceState {
 
         logger.debug(
           'useInference',
-          `Frame ${frameNumber} via ${usedMock ? 'mock' : 'hosted'} — ${latencyMs}ms`,
+          `Frame ${frameNumber} via ${usedMock ? 'mock' : 'hosted'} — ${latencyMs} ms`,
         );
 
         // ── Examination workflow: freeze on threshold ───────────────────────
@@ -255,6 +265,7 @@ export function useInference(): InferenceState {
           const result = await mockBackend.infer(frame.dataUrl);
           pushResult(result, true);
         } catch (e) {
+          setInferring(false);
           logger.error('useInference', 'Mock Provider failed', e);
         }
         return;
@@ -262,12 +273,14 @@ export function useInference(): InferenceState {
 
       // Hosted AI selected (Qwen2.5-VL)
       if (effectiveSource === 'hosted') {
+        setInferring(true);
         try {
           const full = await qwenProvider.inferFull(frame.dataUrl);
           // Log to Inspector session log
           appendLog(frameNumber, full);
           pushResult(full.metadata, false);
         } catch {
+          setInferring(false);
           // Hosted AI failed during normal operation — switch to fallback.
           effectiveSource = 'mock';
           inFallback      = true;
@@ -326,6 +339,7 @@ export function useInference(): InferenceState {
     return () => {
       running = false;
       clearInterval(id);
+      setInferring(false);
     };
   // selectedProvider is a dep — the effect restarts when the operator switches.
   // manager is stable (singleton from context); Zustand setters are stable refs.
@@ -336,6 +350,7 @@ export function useInference(): InferenceState {
     setConnectionStatus,
     updateMetrics,
     setResult,
+    setInferring,
     freezeOnResult,
     setHostedAvailable,
     appendLog,

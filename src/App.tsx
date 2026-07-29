@@ -3,15 +3,22 @@
  *
  * Manages the splash → studio transition.
  * Wraps the app with React Query, Router, and IngestProvider.
+ *
+ * Studio is lazy-loaded to allow the splash screen to render immediately
+ * while the main application bundle is parsed and initialised.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, lazy, Suspense } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AnimatePresence } from 'framer-motion';
 import { IngestProvider } from '@/ingest/IngestContext';
 import { SplashScreen } from '@/components/SplashScreen';
-import { Studio } from '@/pages/Studio';
+
+// Lazy-load Studio so the splash renders before the main chunk is parsed
+const Studio = lazy(() =>
+  import('@/pages/Studio').then(m => ({ default: m.Studio }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,8 +45,15 @@ export function App() {
          * The pipeline starts as soon as the provider mounts.
          */}
         <IngestProvider>
-          {/* Studio renders behind the splash so the pipeline starts early */}
-          <Studio />
+          {/*
+           * Suspense fallback is the dark background — the splash screen
+           * renders on top immediately, hiding any layout shift.
+           */}
+          <Suspense fallback={<div className="fixed inset-0 bg-surface-950" />}>
+            {/* Studio renders behind the splash so the pipeline starts early */}
+            <Studio />
+          </Suspense>
+
           <AnimatePresence>
             {showSplash && (
               <SplashScreen key="splash" onComplete={handleSplashComplete} />

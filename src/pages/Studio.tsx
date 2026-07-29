@@ -11,7 +11,6 @@
  *   StatusBar (fixed height)
  *
  * Wires the single ingest pipeline → inference hook → exam state → UI.
- * No legacy VideoPlayer or direct DOM frame capture.
  */
 
 import { motion } from 'framer-motion';
@@ -32,11 +31,11 @@ export function Studio() {
 
   // Examination workflow state
   const examPhase    = useAppStore(s => s.examPhase);
+  const examStep     = useAppStore(s => s.examStep);
   const frozenResult = useAppStore(s => s.frozenResult);
+  const isInferring  = useAppStore(s => s.isInferring);
   const confirmView  = useAppStore(s => s.confirmView);
   const reacquire    = useAppStore(s => s.reacquire);
-
-  const examStep = useAppStore(s => s.examStep);
 
   // When the workflow is frozen, keep the frozen result on screen.
   // When idle / ready / complete, show nothing (no spurious overlays).
@@ -76,7 +75,7 @@ export function Studio() {
           <div className="absolute inset-0 z-20">
             <OverlayRenderer
               result={displayResult}
-              isInferring={false}
+              isInferring={isInferring && !inference.isMock}
               examPhase={examPhase}
               frozenResult={frozenResult}
               onConfirm={confirmView}

@@ -1,5 +1,5 @@
 /**
- * FAST-Assist Studio — Qwen2.5-VL Inference Provider (RC3)
+ * FAST-Assist Studio — Qwen2.5-VL Inference Provider (RC4)
  *
  * Implements InferenceBackend using Qwen2.5-VL-7B via the OpenRouter API.
  * Exposes both the standard infer() (returns CanonicalMetadata) and the
@@ -8,6 +8,14 @@
  *
  * API key: VITE_OPENROUTER_API_KEY (Replit Secret, build-time env var).
  * healthCheck() returns false when the key is absent — no API quota consumed.
+ *
+ * Reliability guarantees:
+ *   - 25 s hard timeout via AbortController
+ *   - One automatic retry on transient failures (network errors, 429, 5xx)
+ *   - Auth errors (401, 403) are NOT retried — they surface immediately
+ *   - Cancellation is supported: pass an AbortSignal to inferFull()
+ *   - The application never freezes: every call either resolves or throws
+ *   - No unhandled promise rejections — callers (useInference) handle all throws
  *
  * Fallback behaviour is handled upstream in useInference.ts; this class only
  * throws on error, it never silently swallows failures.
@@ -23,6 +31,8 @@ import { logger }                                               from '@/utils/lo
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL          = 'qwen/qwen2.5-vl-7b-instruct:free';
 const TIMEOUT_MS     = 25_000;
+/** HTTP status codes that warrant a single automatic retry */
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 /**
  * Instruction sent to the model with every frame.
@@ -45,6 +55,15 @@ Analyze the ultrasound image and respond with ONLY a JSON object matching this e
   },
   "guidance": "<one concise sentence of probe-positioning guidance for the sonographer>"
 }`;
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface CallOptions {
+  /** External AbortSignal for cooperative cancellation */
+  signal?: AbortSignal;
+  /** Override the default attempt count (default: 2 = one retry) */
+  maxAttempts?: number;
+}
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -86,15 +105,65 @@ export class QwenVLProvider implements InferenceBackend {
    * Full inference call — returns telemetry, raw response, reasoning, and
    * diagnostics in addition to the canonical metadata.
    * Used by useInference to feed the Inspector panel's session log.
+   *
+   * Retry policy: retries once on transient failures (network errors, 429, 5xx).
+   * Auth errors (401, 403) are surfaced immediately without retry.
    */
-  async inferFull(frameDataUrl: string): Promise<FullInferenceResult> {
+  async inferFull(
+    frameDataUrl: string,
+    options: CallOptions = {},
+  ): Promise<FullInferenceResult> {
     if (!this.apiKey) {
       throw new Error('VITE_OPENROUTER_API_KEY is not configured — cannot call hosted AI');
     }
 
+    const maxAttempts = options.maxAttempts ?? 2;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const isLastAttempt = attempt === maxAttempts;
+      try {
+        return await this._attempt(frameDataUrl, options.signal);
+      } catch (err) {
+        const isRetryable = this._isRetryable(err);
+
+        if (isLastAttempt || !isRetryable) {
+          // Surface non-retryable errors immediately; rethrow on last attempt
+          logger.error(
+            'QwenVLProvider',
+            `Inference failed (attempt ${attempt}/${maxAttempts})${isRetryable ? ' — no more retries' : ' — non-retryable'}`,
+            err,
+          );
+          throw err;
+        }
+
+        // Brief pause before retry to avoid hammering a struggling endpoint
+        const delayMs = 500 * attempt;
+        logger.warn(
+          'QwenVLProvider',
+          `Transient failure (attempt ${attempt}/${maxAttempts}) — retrying in ${delayMs} ms`,
+          err,
+        );
+        await delay(delayMs);
+      }
+    }
+
+    // TypeScript requires an explicit throw here (unreachable at runtime)
+    throw new Error('QwenVLProvider: unreachable retry exhaustion');
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────────────────
+
+  /** Execute a single HTTP attempt with its own AbortController + timeout. */
+  private async _attempt(
+    frameDataUrl: string,
+    externalSignal?: AbortSignal,
+  ): Promise<FullInferenceResult> {
     const requestTs  = Date.now();
     const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    // Combine our timeout with any caller-supplied signal
+    const timeoutId = setTimeout(() => controller.abort(new Error(`Timeout after ${TIMEOUT_MS} ms`)), TIMEOUT_MS);
+    externalSignal?.addEventListener('abort', () => controller.abort(externalSignal.reason), { once: true });
 
     try {
       const response = await fetch(OPENROUTER_URL, {
@@ -103,7 +172,7 @@ export class QwenVLProvider implements InferenceBackend {
         headers: {
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
-          'HTTP-Referer':  typeof window !== 'undefined' ? window.location.origin : 'https://fast-assist.replit.app',
+          'HTTP-Referer':  typeof window !== 'undefined' ? window.location.origin : 'https://fast-assist.app',
           'X-Title':       'FAST-Assist Studio',
         },
         body: JSON.stringify({
@@ -127,21 +196,22 @@ export class QwenVLProvider implements InferenceBackend {
       });
 
       const responseTs = Date.now();
+      const wallTimeMs = responseTs - requestTs;
 
       if (!response.ok) {
         const errBody = await response.text().catch(() => '');
-        throw new Error(`OpenRouter HTTP ${response.status}: ${errBody.slice(0, 300)}`);
+        const err = new HttpError(response.status, errBody.slice(0, 300));
+        logger.warn('QwenVLProvider', `HTTP ${response.status} after ${wallTimeMs} ms`, errBody.slice(0, 200));
+        throw err;
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const json   = await response.json() as any;
+      const json      = await response.json() as any;
       const rawText: string = json?.choices?.[0]?.message?.content ?? '';
 
       const usage         = json?.usage ?? {};
       const promptTokens: number | undefined  = usage.prompt_tokens;
       const completTokens: number | undefined = usage.completion_tokens;
-
-      const wallTimeMs = responseTs - requestTs;
 
       const { metadata, reasoning, diagnostics } = parseQwenResponse(rawText, requestTs);
       metadata.backend_latency = wallTimeMs;
@@ -158,17 +228,54 @@ export class QwenVLProvider implements InferenceBackend {
 
       logger.debug(
         'QwenVLProvider',
-        `OK — ${wallTimeMs}ms | view=${metadata.scan_view} | conf=${metadata.confidence.toFixed(2)} | tokens=${completTokens ?? '?'}`,
+        `OK — ${wallTimeMs} ms | view=${metadata.scan_view} | conf=${metadata.confidence.toFixed(2)} | tokens=${completTokens ?? '?'}`,
       );
 
       return { metadata, telemetry, rawResponse: rawText, reasoning, diagnostics };
 
     } catch (err) {
       const wallTimeMs = Date.now() - requestTs;
-      logger.error('QwenVLProvider', `Inference failed after ${wallTimeMs}ms`, err);
+      if (err instanceof Error && err.name === 'AbortError') {
+        const msg = externalSignal?.aborted
+          ? 'Inference cancelled by caller'
+          : `Inference timed out after ${wallTimeMs} ms`;
+        throw new Error(msg);
+      }
       throw err;
     } finally {
       clearTimeout(timeoutId);
     }
   }
+
+  /** Returns true if the error warrants a single automatic retry. */
+  private _isRetryable(err: unknown): boolean {
+    if (err instanceof HttpError) {
+      // Auth errors are non-retryable — retrying won't fix them
+      if (err.status === 401 || err.status === 403) return false;
+      return RETRYABLE_STATUSES.has(err.status);
+    }
+    // Network errors, timeouts, etc. are retryable
+    // Abort triggered by the external caller (not our timeout) is non-retryable
+    if (err instanceof Error) {
+      if (err.message.includes('cancelled by caller')) return false;
+    }
+    return true;
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Tagged HTTP error carrying the status code for retry decisions. */
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    body: string,
+  ) {
+    super(`OpenRouter HTTP ${status}: ${body}`);
+    this.name = 'HttpError';
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

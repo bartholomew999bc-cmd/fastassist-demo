@@ -11,13 +11,17 @@
  * When the system is in fallback mode and the Hosted AI endpoint has been
  * detected as reachable again, a recovery notice appears in the dropdown
  * so the operator can make an informed decision to switch back.
+ *
+ * When VITE_OPENROUTER_API_KEY is absent, Hosted AI shows a subtle indicator
+ * so operators understand why it is unavailable at this build.
  */
 
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RiArrowDownSLine, RiCheckLine } from 'react-icons/ri';
+import { RiArrowDownSLine, RiCheckLine, RiErrorWarningLine } from 'react-icons/ri';
 import { useAppStore } from '@/state/store';
 import { PROVIDER_REGISTRY, connectionColor } from '@/services/ProviderRegistry';
+import { config } from '@/config';
 
 const DOT_COLOR: Record<string, string> = {
   teal:    'bg-teal-400',
@@ -27,9 +31,9 @@ const DOT_COLOR: Record<string, string> = {
 };
 
 export function ProviderSelector() {
-  const selectedProvider  = useAppStore(s => s.selectedProvider);
-  const connectionStatus  = useAppStore(s => s.connectionStatus);
-  const hostedAvailable   = useAppStore(s => s.hostedAvailable);
+  const selectedProvider    = useAppStore(s => s.selectedProvider);
+  const connectionStatus    = useAppStore(s => s.connectionStatus);
+  const hostedAvailable     = useAppStore(s => s.hostedAvailable);
   const setSelectedProvider = useAppStore(s => s.setSelectedProvider);
 
   const [open, setOpen] = useState(false);
@@ -94,11 +98,14 @@ export function ProviderSelector() {
             animate={{ opacity: 1, y: 0,  scale: 1 }}
             exit={{    opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: 0.13, ease: 'easeOut' }}
-            className="absolute top-full left-1/2 -translate-x-1/2 mt-2.5 w-56 bg-surface-900 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden"
+            className="absolute top-full left-1/2 -translate-x-1/2 mt-2.5 w-60 bg-surface-900 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden"
           >
             {/* Provider options */}
             {PROVIDER_REGISTRY.map(descriptor => {
-              const isActive = descriptor.type === selectedProvider;
+              const isActive      = descriptor.type === selectedProvider;
+              const isHosted      = descriptor.type === 'hosted';
+              const noKey         = isHosted && !config.hasHostedAI;
+
               return (
                 <button
                   key={descriptor.type}
@@ -122,12 +129,24 @@ export function ProviderSelector() {
                     )}
                   </div>
 
-                  <div className="min-w-0">
-                    <div className={`text-xs font-semibold ${isActive ? 'text-teal-300' : 'text-white/75'}`}>
-                      {descriptor.label}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-xs font-semibold ${isActive ? 'text-teal-300' : 'text-white/75'}`}>
+                        {descriptor.label}
+                      </span>
+                      {/* Subtle indicator when API key is absent */}
+                      {noKey && (
+                        <RiErrorWarningLine
+                          size={11}
+                          className="text-amber-400/60 flex-shrink-0"
+                          title="VITE_OPENROUTER_API_KEY is not set — will use Mock Mode"
+                        />
+                      )}
                     </div>
                     <div className="text-2xs text-white/35 mt-0.5 leading-relaxed">
-                      {descriptor.description}
+                      {noKey
+                        ? 'No API key — falls back to Mock Mode'
+                        : descriptor.description}
                     </div>
                   </div>
                 </button>
