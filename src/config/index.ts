@@ -73,7 +73,7 @@ export const config: AppConfig = {
   inferenceInterval: import.meta.env.VITE_INFERENCE_INTERVAL
                        ? Number(import.meta.env.VITE_INFERENCE_INTERVAL)
                        : 1200,
-  videoPath:         import.meta.env.VITE_VIDEO_PATH  ?? '/videos/ultrasound.mp4',
+  videoPath:         import.meta.env.VITE_VIDEO_PATH  ?? '/demo/ruq-fast-demo.mp4',
   demoMode:          import.meta.env.VITE_DEMO_MODE   === 'true',
   theme:             (import.meta.env.VITE_THEME as AppTheme) ?? 'dark',
   debug:             import.meta.env.VITE_DEBUG        === 'true',
