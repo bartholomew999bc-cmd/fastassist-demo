@@ -8,16 +8,13 @@
  * On unmount, disposes the manager and all held resources.
  */
 
-import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { VideoIngestManager } from './VideoIngestManager';
 import { DemoVideoSource }    from './sources/DemoVideoSource';
 import { SyntheticSource }    from './sources/SyntheticSource';
 import { config as appConfig } from '@/config';
 import { logger }             from '@/utils/logger';
-
-// ─── Context ──────────────────────────────────────────────────────────────────
-
-const IngestContext = createContext<VideoIngestManager | null>(null);
+import { IngestContext }      from './IngestContextDef';
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -72,7 +69,7 @@ export function IngestProvider({ children }: IngestProviderProps) {
       manager.dispose();
       managerRef.current = null;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <IngestContext.Provider value={managerRef.current}>
@@ -81,16 +78,3 @@ export function IngestProvider({ children }: IngestProviderProps) {
   );
 }
 
-// ─── Hooks ────────────────────────────────────────────────────────────────────
-
-/**
- * Access the VideoIngestManager from any component inside IngestProvider.
- * For most components, prefer the higher-level `useIngest` hook instead.
- */
-export function useIngestManager(): VideoIngestManager {
-  const manager = useContext(IngestContext);
-  if (!manager) {
-    throw new Error('useIngestManager must be called inside <IngestProvider>');
-  }
-  return manager;
-}

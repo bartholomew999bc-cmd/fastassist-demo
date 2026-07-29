@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useIngestManager } from '@/ingest/IngestContext';
+import { useIngestManager } from '@/ingest/useIngest';
 import { DemoVideoSource }  from '@/ingest/sources/DemoVideoSource';
 import { UploadVideoSource } from '@/ingest/sources/UploadVideoSource';
 import { WebcamSource }     from '@/ingest/sources/WebcamSource';

@@ -46,7 +46,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { InferenceResult, ProviderType } from '@/types';
 import { useAppStore }       from '@/state/store';
-import { useIngestManager }  from '@/ingest/IngestContext';
+import { useIngestManager }  from '@/ingest/useIngest';
 import { MockBackend }       from '@/services/MockBackend';
 import { QwenVLProvider }    from '@/services/QwenVLProvider';
 import { useInferenceLog }   from '@/state/inferenceLog';
@@ -343,7 +343,7 @@ export function useInference(): InferenceState {
     };
   // selectedProvider is a dep — the effect restarts when the operator switches.
   // manager is stable (singleton from context); Zustand setters are stable refs.
-  }, [ // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
     manager,
     selectedProvider,
     setMockMode,

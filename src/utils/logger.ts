@@ -40,7 +40,7 @@ class Logger {
       const prefix = `[FAST-Assist][${category}]`;
       if (level === 'error') console.error(prefix, message, data ?? '');
       else if (level === 'warn')  console.warn(prefix, message, data ?? '');
-      else if (config.debug)      console.log(prefix, message, data ?? '');
+      else if (config.debug)      console.debug(prefix, message, data ?? '');
     }
   }
 

@@ -20,7 +20,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RiPlayCircleLine, RiPauseCircleLine } from 'react-icons/ri';
 import { useIngest } from '@/hooks/useIngest';
-import { useIngestManager } from '@/ingest/IngestContext';
+import { useIngestManager } from '@/ingest/useIngest';
 import { SyntheticSource } from '@/ingest/sources/SyntheticSource';
 import { SyntheticUltrasound } from './SyntheticUltrasound';
 import { useAppStore } from '@/state/store';
