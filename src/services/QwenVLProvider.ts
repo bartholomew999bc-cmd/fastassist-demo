@@ -29,10 +29,24 @@ import { logger }                                               from '@/utils/lo
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL          = 'qwen/qwen2.5-vl-7b-instruct:free';
-const TIMEOUT_MS     = 25_000;
-/** HTTP status codes that warrant a single automatic retry */
+
+/**
+ * Model priority list — tried in order; falls back on model-not-available errors.
+ * A 401/403 (auth failure) surfaces immediately without trying the next model.
+ */
+const MODELS = [
+  'qwen/qwen2.5-vl-72b-instruct',
+  'qwen/qwen2.5-vl-32b-instruct',
+  'qwen/qwen2.5-vl-7b-instruct',
+] as const;
+type ModelId = typeof MODELS[number];
+
+/** HTTP statuses that indicate the specific model is unavailable (try next). */
+const MODEL_UNAVAILABLE_STATUSES = new Set([404, 422]);
+/** HTTP status codes that warrant a single automatic retry on the same model */
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+const TIMEOUT_MS = 25_000;
 
 /**
  * Instruction sent to the model with every frame.
@@ -86,7 +100,7 @@ export class QwenVLProvider implements InferenceBackend {
     }
     // Key-presence check only — calling the API just to health-check would
     // burn quota and add ~1–2 s latency on every init.
-    logger.info('QwenVLProvider', `API key present — provider ready (model: ${MODEL})`);
+    logger.info('QwenVLProvider', `API key present — provider ready (primary model: ${MODELS[0]})`);
     return true;
   }
 
@@ -118,37 +132,54 @@ export class QwenVLProvider implements InferenceBackend {
     }
 
     const maxAttempts = options.maxAttempts ?? 2;
+    let lastError: unknown;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const isLastAttempt = attempt === maxAttempts;
-      try {
-        return await this._attempt(frameDataUrl, options.signal);
-      } catch (err) {
-        const isRetryable = this._isRetryable(err);
+    // Outer loop: try each model in priority order
+    for (const model of MODELS) {
+      // Inner loop: retry once on transient failures for this model
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const isLastAttempt = attempt === maxAttempts;
+        try {
+          return await this._attempt(frameDataUrl, model, options.signal);
+        } catch (err) {
+          lastError = err;
 
-        if (isLastAttempt || !isRetryable) {
-          // Surface non-retryable errors immediately; rethrow on last attempt
-          logger.error(
+          // Auth failures are terminal — no point trying other models
+          if (err instanceof HttpError && (err.status === 401 || err.status === 403)) {
+            logger.error('QwenVLProvider', `Auth failure (${err.status}) — stopping`, err);
+            throw err;
+          }
+
+          // Model unavailable — break inner loop and try next model
+          if (err instanceof HttpError && MODEL_UNAVAILABLE_STATUSES.has(err.status)) {
+            logger.warn('QwenVLProvider', `Model ${model} unavailable (${err.status}) — trying next`);
+            break;
+          }
+
+          const isRetryable = this._isRetryable(err);
+          if (isLastAttempt || !isRetryable) {
+            logger.error(
+              'QwenVLProvider',
+              `Inference failed on ${model} (attempt ${attempt}/${maxAttempts})${isRetryable ? ' — no more retries' : ' — non-retryable'}`,
+              err,
+            );
+            // Non-retryable non-model error: break inner, try next model as last resort
+            break;
+          }
+
+          const delayMs = 500 * attempt;
+          logger.warn(
             'QwenVLProvider',
-            `Inference failed (attempt ${attempt}/${maxAttempts})${isRetryable ? ' — no more retries' : ' — non-retryable'}`,
+            `Transient failure on ${model} (attempt ${attempt}/${maxAttempts}) — retrying in ${delayMs} ms`,
             err,
           );
-          throw err;
+          await delay(delayMs);
         }
-
-        // Brief pause before retry to avoid hammering a struggling endpoint
-        const delayMs = 500 * attempt;
-        logger.warn(
-          'QwenVLProvider',
-          `Transient failure (attempt ${attempt}/${maxAttempts}) — retrying in ${delayMs} ms`,
-          err,
-        );
-        await delay(delayMs);
       }
     }
 
-    // TypeScript requires an explicit throw here (unreachable at runtime)
-    throw new Error('QwenVLProvider: unreachable retry exhaustion');
+    // All models exhausted
+    throw lastError ?? new Error('QwenVLProvider: all models exhausted without a result');
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────────
@@ -156,6 +187,7 @@ export class QwenVLProvider implements InferenceBackend {
   /** Execute a single HTTP attempt with its own AbortController + timeout. */
   private async _attempt(
     frameDataUrl: string,
+    model: ModelId,
     externalSignal?: AbortSignal,
   ): Promise<FullInferenceResult> {
     const requestTs  = Date.now();
@@ -176,7 +208,7 @@ export class QwenVLProvider implements InferenceBackend {
           'X-Title':       'FAST-Assist Studio',
         },
         body: JSON.stringify({
-          model:       MODEL,
+          model,
           max_tokens:  600,
           temperature: 0.05, // near-deterministic for structured output
           messages: [{
@@ -221,7 +253,7 @@ export class QwenVLProvider implements InferenceBackend {
         responseTs,
         wallTimeMs,
         provider:    'qwen-vl',
-        model:       MODEL,
+        model,
         promptTokens,
         completTokens,
       };
