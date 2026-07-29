@@ -1,0 +1,89 @@
+{
+  "title": "FAST-Assist Studio — Product Demo",
+  "version": "1.0.0",
+  "fps": 60,
+  "resolution": { "width": 1920, "height": 1080 },
+  "codec": "h264",
+  "scenes": [
+    {
+      "id": 1,
+      "name": "Splash",
+      "description": "FAST-Assist logo fades in with concentric rings, subtitle and live pill animate in",
+      "start_sec": 0,
+      "end_sec": 7,
+      "elements": ["logo-mark", "title", "subtitle", "live-pill", "version"]
+    },
+    {
+      "id": 2,
+      "name": "Studio Layout",
+      "description": "Studio UI assembles: topbar, sidebar, video panel, inference panel with callout highlights",
+      "start_sec": 6.5,
+      "end_sec": 14.5,
+      "elements": ["topbar", "sidebar", "video-panel", "timeline", "analyze-button", "inference-panel"]
+    },
+    {
+      "id": 3,
+      "name": "RUQ Anatomy Labels",
+      "description": "Ultrasound frame with anatomical labels fading in: Liver, Right Kidney, Morison's Pouch, Diaphragm",
+      "start_sec": 14,
+      "end_sec": 21.5,
+      "elements": ["liver-label", "kidney-label", "morisons-label", "diaphragm-label"]
+    },
+    {
+      "id": 4,
+      "name": "Probe Guidance",
+      "description": "Probe marker animates with rock/sweep, orientation compass, position and direction labels",
+      "start_sec": 21,
+      "end_sec": 28,
+      "elements": ["probe-marker", "sweep-arrows", "orientation-compass", "position-label", "direction-label"]
+    },
+    {
+      "id": 5,
+      "name": "Analyze Frame",
+      "description": "Progress card: Uploading → Processing → Inference → Results with animated progress bar",
+      "start_sec": 27.5,
+      "end_sec": 35.5,
+      "elements": ["progress-card", "step-1", "step-2", "step-3", "step-4", "progress-bar"]
+    },
+    {
+      "id": 6,
+      "name": "Confidence Gating",
+      "description": "Confidence animates 32% → 54% → 71% → 91% with status text changes",
+      "start_sec": 35,
+      "end_sec": 43,
+      "elements": ["confidence-number", "confidence-bar", "status-text", "snr", "depth"]
+    },
+    {
+      "id": 7,
+      "name": "Anatomical Overlays",
+      "description": "Structures highlighted one at a time: Liver, Right Kidney, Morison's Pouch with glow",
+      "start_sec": 42.5,
+      "end_sec": 50.5,
+      "elements": ["liver-overlay", "kidney-overlay", "morisons-overlay"]
+    },
+    {
+      "id": 8,
+      "name": "Free Fluid Assessment",
+      "description": "AI result card for Morison's Pouch with educational disclaimer",
+      "start_sec": 50,
+      "end_sec": 58,
+      "elements": ["result-card", "finding", "confidence-score", "disclaimer"]
+    },
+    {
+      "id": 9,
+      "name": "Feature Showcase",
+      "description": "Six feature callouts animate in: Probe Guidance, Anatomical Recognition, Confidence Gating, AI Inference, Structured Reporting, Responsive Workflow",
+      "start_sec": 57.5,
+      "end_sec": 67.5,
+      "elements": ["feature-1", "feature-2", "feature-3", "feature-4", "feature-5", "feature-6"]
+    },
+    {
+      "id": 10,
+      "name": "Outro",
+      "description": "Logo, title and version fade in over concentric rings, fade to black",
+      "start_sec": 67,
+      "end_sec": 75,
+      "elements": ["logo", "title", "version-tag"]
+    }
+  ]
+}

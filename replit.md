@@ -135,3 +135,70 @@ No other code changes required.
 - Animations via Framer Motion only — no CSS keyframe hacks
 - All configuration via `src/config/index.ts` — no hardcoded values
 - Static deployment only — no backend, no SSR
+
+---
+
+## Demo Video Pipeline
+
+Produces `demo/FASTAssist_Product_Demo.mp4` — a 75-second, 1920×1080, 60fps H.264 product demo.
+
+### Deliverables
+
+| File | Description |
+|------|-------------|
+| `demo/FASTAssist_Product_Demo.mp4` | Final encoded video |
+| `demo/presentation.html` | Standalone HTML presentation (all 10 scenes) |
+| `demo/storyboard.json` | Scene descriptions and asset list |
+| `demo/scene_timing.json` | Frame-accurate timing with crossfade data |
+| `demo/scripts/render.mjs` | Playwright frame renderer |
+| `demo/scripts/encode.sh` | FFmpeg H.264 encoder |
+| `demo/frames/` | PNG frame sequence (4500 frames) |
+| `demo/scene5_screenshot.png` | Mid-render screenshot from Scene 5 |
+
+### Rendering pipeline
+
+```bash
+# 1. Install dependencies (first time only)
+npm install
+npx playwright install chromium
+
+# 2. Render frames (4500 frames, ~75 seconds at 6fps render rate)
+#    Split into batches to fit within timeout limits:
+node demo/scripts/render.mjs --start    0 --end 1499 --batch 200
+node demo/scripts/render.mjs --start 1500 --end 2999 --batch 200
+node demo/scripts/render.mjs --start 3000 --end 4499 --batch 200
+
+# 3. Encode to MP4
+bash demo/scripts/encode.sh
+```
+
+### System requirements
+
+The renderer uses the **NixOS system Chromium** (not Playwright's bundled binary):
+```bash
+# Already installed — no action needed
+which chromium   # /nix/store/.../bin/chromium
+```
+
+### Re-rendering a range
+
+To re-render specific frames (e.g. after editing `presentation.html`):
+```bash
+node demo/scripts/render.mjs --start 1650 --end 2130  # Scene 5 only
+bash demo/scripts/encode.sh                            # Re-encode full video
+```
+
+### Scenes
+
+| # | Name | Time | Key elements |
+|---|------|------|-------------|
+| 1 | Splash | 0–7s | Logo, rings, subtitle, live pill |
+| 2 | Studio Layout | 6.5–14.5s | TopBar, sidebar, video panel, callouts |
+| 3 | Anatomy Labels | 14–21.5s | Liver, Kidney, Morison's Pouch, Diaphragm |
+| 4 | Probe Guidance | 21–28s | Probe marker, sweep arrows, orientation compass |
+| 5 | Analyze Pipeline | 27.5–35.5s | Uploading → Processing → Inference → Results |
+| 6 | Confidence Gating | 35–43s | 32% → 54% → 71% → 91% with status text |
+| 7 | Struct Overlays | 42.5–50.5s | Anatomy overlays with glow |
+| 8 | Free Fluid | 50–58s | AI assessment card + disclaimer |
+| 9 | Features | 57.5–67.5s | Six feature callouts |
+| 10 | Outro | 67–75s | Logo fade out |
