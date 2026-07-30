@@ -20,6 +20,7 @@ import { StatusDot } from '@/components/ui/StatusDot';
 import { ProviderSelector } from '@/components/ui/ProviderSelector';
 import { APP_NAME, APP_VERSION } from '@/config';
 import { UserMenu } from '@/components/UserMenu';
+import { DEV_AUTH_BYPASS_ACTIVE } from '@/auth/AuthProvider';
 
 export function TopBar() {
   const {
@@ -131,6 +132,15 @@ export function TopBar() {
         >
           {isFullscreen ? <RiFullscreenExitLine size={15} /> : <RiFullscreenLine size={15} />}
         </motion.button>
+
+        {/* Dev auth bypass badge — only rendered when DEV_AUTH_BYPASS_ACTIVE is true.
+            Vite's dead-code elimination removes this entirely from production builds. */}
+        {DEV_AUTH_BYPASS_ACTIVE && (
+          <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/25 ml-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-2xs font-semibold uppercase tracking-wider text-amber-400">Dev Auth</span>
+          </div>
+        )}
 
         {/* User avatar + sign-out dropdown */}
         <div className="ml-1">
