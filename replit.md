@@ -56,12 +56,44 @@ npm run preview   # Preview production build
 
 ## Deployment
 
-This is a **fully static** application. Build produces only HTML/CSS/JS/assets.
+This is a **fully static** application. The production image is ~55 MB (Node builder → nginx Alpine).
+
+### Cloud Run (primary)
+
+See `DEPLOY.md` for the full step-by-step guide. Quick reference:
+
+```bash
+# Build container (all VITE_* vars are baked in at build time)
+docker build \
+  --build-arg VITE_FIREBASE_API_KEY=... \
+  --build-arg VITE_FIREBASE_AUTH_DOMAIN=... \
+  --build-arg VITE_FIREBASE_PROJECT_ID=... \
+  --build-arg VITE_FIREBASE_STORAGE_BUCKET=... \
+  --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=... \
+  --build-arg VITE_FIREBASE_APP_ID=... \
+  --build-arg VITE_OPENROUTER_API_KEY=... \
+  -t gcr.io/PROJECT_ID/fast-assist-studio .
+
+# Deploy
+gcloud run deploy fast-assist-studio \
+  --image gcr.io/PROJECT_ID/fast-assist-studio \
+  --platform managed --region us-central1 --allow-unauthenticated
+```
+
+After deploying, add the Cloud Run URL to Firebase → Authentication → Authorized Domains.
+
+### Local container test
+
+```bash
+docker run -p 8080:8080 -e PORT=8080 fast-assist-studio:local
+curl http://localhost:8080/healthz   # → ok
+```
+
+### Static hosting (alternative)
 
 ```bash
 npm run build
-# Upload the dist/ folder to any static host:
-# Cloudflare Pages, GitHub Pages, Vercel, AWS S3, Nginx, cPanel, etc.
+# Upload dist/ to Cloudflare Pages, Vercel, S3, etc.
 ```
 
 ## Inference Providers (RC2)

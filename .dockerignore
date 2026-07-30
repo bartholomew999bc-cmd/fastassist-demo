@@ -1,11 +1,45 @@
-node_modules
-dist
-.git
+# Build outputs — never copy into the image
+dist/
+node_modules/
+
+# Version control
+.git/
 .gitignore
-*.log
-*.md
+.gitattributes
+
+# Environment files — secrets must be passed as --build-arg, never baked in
 .env
 .env.*
 !.env.example
+
+# Development tooling — not needed in the image
+android-probe/
+demo/
+scripts/
+*.log
+
+# Documentation — reduces build context size
+*.md
+!README.md
+
+# OS artefacts
 .DS_Store
-android-probe
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Replit-specific
+.replit
+replit.nix
+.cache/
+.local/
+.agents/
+
+# Test artefacts
+coverage/
+playwright-report/
+test-results/
