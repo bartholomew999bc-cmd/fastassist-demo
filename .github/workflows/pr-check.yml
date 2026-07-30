@@ -1,0 +1,66 @@
+# FAST-Assist Studio — Pull Request Check
+#
+# Runs on every PR targeting `main`.
+# Provides fast feedback before code is merged:
+#   - TypeScript type checking
+#   - Production Vite build (with placeholder Firebase values — validates the
+#     bundler, not Firebase connectivity)
+#
+# This workflow does NOT deploy. The `deploy.yml` workflow handles deployment
+# after the PR is merged to main.
+
+name: PR Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check:
+    name: Type Check & Build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      # Build with placeholder Firebase values to validate the bundler pipeline.
+      # Real values are not needed here — we're checking that the code compiles,
+      # not that Firebase is reachable. VITE_DEV_AUTH_BYPASS is explicitly false
+      # to ensure the production code path is exercised.
+      - name: Production build
+        run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY:            placeholder-key
+          VITE_FIREBASE_AUTH_DOMAIN:        placeholder.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID:         placeholder-project
+          VITE_FIREBASE_STORAGE_BUCKET:     placeholder.firebasestorage.app
+          VITE_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+          VITE_FIREBASE_APP_ID:             "1:000000000000:web:placeholder"
+          VITE_DEV_AUTH_BYPASS:             "false"
+
+      - name: Check bundle size
+        run: |
+          echo "## Bundle sizes" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          du -sh dist/assets/*.js dist/assets/*.css 2>/dev/null | sort -h >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Total dist/:"
+          du -sh dist/

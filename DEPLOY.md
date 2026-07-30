@@ -200,41 +200,183 @@ curl http://localhost:8080/healthz
 
 ---
 
-## Cloud Build (CI/CD)
+## GitHub Actions CI/CD
 
-Store secrets in **Secret Manager** and reference them in `cloudbuild.yaml`:
+Every push to `main` automatically builds and deploys via `.github/workflows/deploy.yml`.
+Pull requests are checked (type + build) via `.github/workflows/pr-check.yml`.
 
-```yaml
-steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        docker build \
-          --build-arg VITE_FIREBASE_API_KEY=$$FIREBASE_API_KEY \
-          --build-arg VITE_FIREBASE_AUTH_DOMAIN=$$FIREBASE_AUTH_DOMAIN \
-          --build-arg VITE_FIREBASE_PROJECT_ID=$$FIREBASE_PROJECT_ID \
-          --build-arg VITE_FIREBASE_STORAGE_BUCKET=$$FIREBASE_STORAGE_BUCKET \
-          --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=$$FIREBASE_MESSAGING_SENDER_ID \
-          --build-arg VITE_FIREBASE_APP_ID=$$FIREBASE_APP_ID \
-          --build-arg VITE_OPENROUTER_API_KEY=$$OPENROUTER_API_KEY \
-          -t $_IMAGE_TAG .
-    secretEnv:
-      - FIREBASE_API_KEY
-      - FIREBASE_AUTH_DOMAIN
-      - FIREBASE_PROJECT_ID
-      - FIREBASE_STORAGE_BUCKET
-      - FIREBASE_MESSAGING_SENDER_ID
-      - FIREBASE_APP_ID
-      - OPENROUTER_API_KEY
+### Required GitHub Secrets
 
-availableSecrets:
-  secretManager:
-    - versionName: projects/$PROJECT_ID/secrets/firebase-api-key/versions/latest
-      env: FIREBASE_API_KEY
-    # ... repeat for each secret
+Add these in **GitHub → Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Example value | Notes |
+|--------|--------------|-------|
+| `GCP_PROJECT_ID` | `my-gcp-project` | Google Cloud project ID |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/123.../providers/github-provider` | Full WIF provider resource name |
+| `GCP_SERVICE_ACCOUNT` | `github-actions-deploy@my-project.iam.gserviceaccount.com` | SA email for WIF |
+| `GCP_REGION` | `us-central1` | Artifact Registry + Cloud Run region |
+| `GCP_AR_REPOSITORY` | `fast-assist` | Artifact Registry repository name |
+| `CLOUDRUN_SERVICE_NAME` | `fast-assist-studio` | Cloud Run service name |
+| `VITE_FIREBASE_API_KEY` | `AIzaSy...` | Firebase project config |
+| `VITE_FIREBASE_AUTH_DOMAIN` | `project.firebaseapp.com` | |
+| `VITE_FIREBASE_PROJECT_ID` | `project-id` | |
+| `VITE_FIREBASE_STORAGE_BUCKET` | `project.firebasestorage.app` | |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | `566469349570` | |
+| `VITE_FIREBASE_APP_ID` | `1:566...:web:...` | |
+| `VITE_FIREBASE_MEASUREMENT_ID` | `G-XXXXXXXXXX` | Optional — Analytics |
+| `VITE_OPENROUTER_API_KEY` | `sk-or-...` | Optional — omit for Mock Mode |
+
+---
+
+## One-time Google Cloud Setup
+
+Run these commands once before your first deployment. Replace the placeholder values.
+
+```bash
+# ── Configuration ────────────────────────────────────────────────────────────
+PROJECT_ID=your-gcp-project-id
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+GITHUB_ORG=your-github-org-or-username
+GITHUB_REPO=your-repository-name
+SA_NAME=github-actions-deploy
+POOL_ID=github-pool
+PROVIDER_ID=github-provider
+REGION=us-central1
+AR_REPO=fast-assist
+SERVICE_NAME=fast-assist-studio
+
+# ── 1. Enable required APIs ───────────────────────────────────────────────────
+gcloud services enable \
+  run.googleapis.com \
+  artifactregistry.googleapis.com \
+  iam.googleapis.com \
+  iamcredentials.googleapis.com \
+  --project=$PROJECT_ID
+
+# ── 2. Create the CI/CD service account ──────────────────────────────────────
+gcloud iam service-accounts create $SA_NAME \
+  --display-name="GitHub Actions CI/CD" \
+  --project=$PROJECT_ID
+
+# ── 3. Grant required roles to the service account ───────────────────────────
+
+# Deploy and manage Cloud Run services
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --role="roles/run.admin" \
+  --member="serviceAccount:$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
+
+# Push container images to Artifact Registry
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --role="roles/artifactregistry.writer" \
+  --member="serviceAccount:$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
+
+# Cloud Run needs to act as the default compute SA during deployment
+gcloud iam service-accounts add-iam-policy-binding \
+  "$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser" \
+  --member="serviceAccount:$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
+  --project=$PROJECT_ID
+
+# ── 4. Create Workload Identity Pool ─────────────────────────────────────────
+gcloud iam workload-identity-pools create $POOL_ID \
+  --location=global \
+  --display-name="GitHub Actions Pool" \
+  --project=$PROJECT_ID
+
+# ── 5. Create OIDC provider (scoped to your repository) ──────────────────────
+gcloud iam workload-identity-pools providers create-oidc $PROVIDER_ID \
+  --workload-identity-pool=$POOL_ID \
+  --location=global \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner" \
+  --attribute-condition="assertion.repository=='$GITHUB_ORG/$GITHUB_REPO'" \
+  --project=$PROJECT_ID
+
+# ── 6. Allow WIF to impersonate the service account ──────────────────────────
+gcloud iam service-accounts add-iam-policy-binding \
+  "$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/attribute.repository/$GITHUB_ORG/$GITHUB_REPO" \
+  --project=$PROJECT_ID
+
+# ── 7. Get the WIF provider resource name → paste into GCP_WORKLOAD_IDENTITY_PROVIDER secret
+gcloud iam workload-identity-pools providers describe $PROVIDER_ID \
+  --workload-identity-pool=$POOL_ID \
+  --location=global \
+  --format='value(name)' \
+  --project=$PROJECT_ID
+
+# ── 8. Create Artifact Registry repository (if not already done) ──────────────
+gcloud artifacts repositories create $AR_REPO \
+  --repository-format=docker \
+  --location=$REGION \
+  --description="FAST-Assist Studio container images" \
+  --project=$PROJECT_ID
+
+# ── 9. Create the initial Cloud Run service (first deploy only) ───────────────
+# After this, GitHub Actions updates it on every push to main.
+IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/studio:latest"
+
+gcloud run deploy $SERVICE_NAME \
+  --image "$IMAGE" \
+  --platform managed \
+  --region $REGION \
+  --allow-unauthenticated \
+  --port 8080 \
+  --memory 256Mi \
+  --cpu 1 \
+  --min-instances 0 \
+  --max-instances 10 \
+  --timeout 30 \
+  --project=$PROJECT_ID
 ```
+
+> **Tip:** The output of step 7 is the full resource name like
+> `projects/123456789/locations/global/workloadIdentityPools/github-pool/providers/github-provider`.
+> This goes into the `GCP_WORKLOAD_IDENTITY_PROVIDER` GitHub Secret.
+
+---
+
+## How Deployments Work
+
+```
+push to main
+     │
+     ▼
+GitHub Actions (deploy.yml)
+     │
+     ├─ npm ci + tsc --noEmit          (fast type-check)
+     ├─ docker build (VITE_* baked in) (builds the static bundle)
+     ├─ docker push :sha + :latest      (to Artifact Registry)
+     └─ gcloud run deploy --image :sha  (zero-downtime rollout)
+              │
+              ▼
+        Cloud Run promotes new revision
+        Previous revision stays warm until health checks pass
+        URL remains constant — no DNS change needed
+```
+
+---
+
+## Rollback
+
+Cloud Run keeps all previous revisions. To roll back to any earlier commit:
+
+```bash
+# List recent revisions
+gcloud run revisions list \
+  --service fast-assist-studio \
+  --region us-central1 \
+  --sort-by='~DEPLOYED' \
+  --limit=10
+
+# Send 100% of traffic to a specific revision
+gcloud run services update-traffic fast-assist-studio \
+  --region us-central1 \
+  --to-revisions=fast-assist-studio-00042-xyz=100
+```
+
+Or re-run an earlier GitHub Actions workflow run via the **Actions** tab → select the run → **Re-run all jobs**.
 
 ---
 

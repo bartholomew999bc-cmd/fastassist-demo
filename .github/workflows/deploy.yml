@@ -1,0 +1,172 @@
+# FAST-Assist Studio — Continuous Deployment
+#
+# Triggers on every push to `main`.
+# Also supports manual runs via workflow_dispatch.
+#
+# Pipeline:
+#   1. Type-check TypeScript (fast fail before Docker)
+#   2. Authenticate to GCP via Workload Identity Federation (no long-lived keys)
+#   3. Build the production Docker image with all VITE_* secrets baked in
+#   4. Push both :sha and :latest tags to Artifact Registry
+#   5. Deploy the immutable :sha image to Cloud Run (zero-downtime)
+#   6. Report the live URL in the job summary
+#
+# Required GitHub Secrets — see DEPLOY.md for setup instructions:
+#
+#   GCP_PROJECT_ID                  Google Cloud project ID
+#   GCP_WORKLOAD_IDENTITY_PROVIDER  WIF provider resource name
+#   GCP_SERVICE_ACCOUNT             SA email used for WIF impersonation
+#   GCP_REGION                      Artifact Registry / Cloud Run region
+#   GCP_AR_REPOSITORY               Artifact Registry repository name
+#   CLOUDRUN_SERVICE_NAME           Cloud Run service name
+#   VITE_FIREBASE_API_KEY           \
+#   VITE_FIREBASE_AUTH_DOMAIN        |
+#   VITE_FIREBASE_PROJECT_ID         | Firebase config — baked into the
+#   VITE_FIREBASE_STORAGE_BUCKET     | static bundle at build time
+#   VITE_FIREBASE_MESSAGING_SENDER_ID|
+#   VITE_FIREBASE_APP_ID            /
+#   VITE_FIREBASE_MEASUREMENT_ID    (optional — Firebase Analytics)
+#   VITE_OPENROUTER_API_KEY         (optional — omit for Mock Mode)
+
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    # id-token:write is required for Workload Identity Federation.
+    # contents:read is required for actions/checkout.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      # ── 1. Source ────────────────────────────────────────────────────────────
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Node / TypeScript fast-fail ───────────────────────────────────────
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      # ── 3. GCP authentication (Workload Identity Federation) ─────────────────
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker \
+            ${{ secrets.GCP_REGION }}-docker.pkg.dev \
+            --quiet
+
+      # ── 4. Image tags ─────────────────────────────────────────────────────────
+      # We tag with the commit SHA (immutable, used for deployment) and :latest
+      # (mutable, useful for pulling the most recent image without a SHA).
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          BASE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_AR_REPOSITORY }}/studio"
+          SHA_TAG="${BASE}:${{ github.sha }}"
+          LATEST_TAG="${BASE}:latest"
+          echo "sha_tag=${SHA_TAG}"    >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "**Image:** \`${SHA_TAG}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── 5. Docker build ───────────────────────────────────────────────────────
+      # All VITE_* values are baked into the static JS bundle by Vite at this
+      # stage. They are NOT present as runtime env vars inside the container.
+      # VITE_DEV_AUTH_BYPASS is explicitly forced to "false" here as a
+      # belt-and-suspenders guard (the Dockerfile already does the same).
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg VITE_FIREBASE_API_KEY="${{ secrets.VITE_FIREBASE_API_KEY }}" \
+            --build-arg VITE_FIREBASE_AUTH_DOMAIN="${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}" \
+            --build-arg VITE_FIREBASE_PROJECT_ID="${{ secrets.VITE_FIREBASE_PROJECT_ID }}" \
+            --build-arg VITE_FIREBASE_STORAGE_BUCKET="${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}" \
+            --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID="${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}" \
+            --build-arg VITE_FIREBASE_APP_ID="${{ secrets.VITE_FIREBASE_APP_ID }}" \
+            --build-arg VITE_FIREBASE_MEASUREMENT_ID="${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}" \
+            --build-arg VITE_OPENROUTER_API_KEY="${{ secrets.VITE_OPENROUTER_API_KEY }}" \
+            --build-arg VITE_DEV_AUTH_BYPASS="false" \
+            --tag "${{ steps.tags.outputs.sha_tag }}" \
+            --tag "${{ steps.tags.outputs.latest_tag }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            .
+
+      # ── 6. Push to Artifact Registry ─────────────────────────────────────────
+
+      - name: Push image to Artifact Registry
+        run: |
+          docker push "${{ steps.tags.outputs.sha_tag }}"
+          docker push "${{ steps.tags.outputs.latest_tag }}"
+
+      # ── 7. Deploy to Cloud Run ────────────────────────────────────────────────
+      # Deploys the immutable :sha tag (not :latest) so the exact deployed
+      # version is always traceable back to a commit.
+      #
+      # Cloud Run performs a zero-downtime rolling deployment. If this step
+      # fails, the previous revision continues serving 100% of traffic — Cloud
+      # Run never leaves the service in a partially deployed state.
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ secrets.CLOUDRUN_SERVICE_NAME }}
+          region:  ${{ secrets.GCP_REGION }}
+          image:   ${{ steps.tags.outputs.sha_tag }}
+          flags: >-
+            --allow-unauthenticated
+            --port=8080
+            --memory=256Mi
+            --cpu=1
+            --min-instances=0
+            --max-instances=10
+            --timeout=30
+
+      # ── 8. Summary ───────────────────────────────────────────────────────────
+
+      - name: Deployment summary
+        run: |
+          echo "## ✅ Deployed to Cloud Run" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Service** | \`${{ secrets.CLOUDRUN_SERVICE_NAME }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Region**  | \`${{ secrets.GCP_REGION }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Commit**  | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Image**   | \`${{ steps.tags.outputs.sha_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **URL**     | ${{ steps.deploy.outputs.url }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo ""
+          echo "Deployed: ${{ steps.deploy.outputs.url }}"
