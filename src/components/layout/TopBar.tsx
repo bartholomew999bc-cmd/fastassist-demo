@@ -19,6 +19,7 @@ import { useAppStore } from '@/state/store';
 import { StatusDot } from '@/components/ui/StatusDot';
 import { ProviderSelector } from '@/components/ui/ProviderSelector';
 import { APP_NAME, APP_VERSION } from '@/config';
+import { UserMenu } from '@/components/UserMenu';
 
 export function TopBar() {
   const {
@@ -130,6 +131,11 @@ export function TopBar() {
         >
           {isFullscreen ? <RiFullscreenExitLine size={15} /> : <RiFullscreenLine size={15} />}
         </motion.button>
+
+        {/* User avatar + sign-out dropdown */}
+        <div className="ml-1">
+          <UserMenu />
+        </div>
       </div>
     </header>
   );
