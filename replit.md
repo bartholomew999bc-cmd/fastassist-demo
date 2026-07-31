@@ -63,21 +63,14 @@ This is a **fully static** application. The production image is ~55 MB (Node bui
 See `DEPLOY.md` for the full step-by-step guide. Quick reference:
 
 ```bash
-# Build container (all VITE_* vars are baked in at build time)
-docker build \
-  --build-arg VITE_FIREBASE_API_KEY=... \
-  --build-arg VITE_FIREBASE_AUTH_DOMAIN=... \
-  --build-arg VITE_FIREBASE_PROJECT_ID=... \
-  --build-arg VITE_FIREBASE_STORAGE_BUCKET=... \
-  --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=... \
-  --build-arg VITE_FIREBASE_APP_ID=... \
-  --build-arg VITE_OPENROUTER_API_KEY=... \
-  -t gcr.io/PROJECT_ID/fast-assist-studio .
+# Build container — no Firebase build args needed (config is embedded in the bundle)
+docker build -t gcr.io/PROJECT_ID/fast-assist-studio .
 
-# Deploy
+# Deploy — only runtime secret is OPENROUTER_API_KEY
 gcloud run deploy fast-assist-studio \
   --image gcr.io/PROJECT_ID/fast-assist-studio \
-  --platform managed --region us-central1 --allow-unauthenticated
+  --platform managed --region us-central1 --allow-unauthenticated \
+  --set-env-vars OPENROUTER_API_KEY=<your-key>
 ```
 
 After deploying, add the Cloud Run URL to Firebase → Authentication → Authorized Domains.

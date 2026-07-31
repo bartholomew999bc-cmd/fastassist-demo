@@ -5,10 +5,10 @@
  * Analytics is conditionally enabled only in browser environments to avoid
  * SSR / build-time issues.
  *
- * All Firebase configuration is read from Vite environment variables so that
- * no credentials are hard-coded. Additional providers (Email/Password,
- * Microsoft, etc.) can be added by importing from 'firebase/auth' and
- * registering them in auth/AuthProvider.tsx.
+ * Firebase SDK configuration is embedded directly in the frontend bundle —
+ * this is the standard practice for client-side Firebase apps. The config
+ * identifies the Firebase project but does not grant any access beyond what
+ * Firebase Security Rules allow.
  *
  * ── Development bypass ───────────────────────────────────────────────────────
  * When DEV_AUTH_BYPASS_ACTIVE is true, Firebase is never initialised.
@@ -29,22 +29,26 @@ const DEV_BYPASS =
   import.meta.env.DEV === true &&
   import.meta.env.VITE_DEV_AUTH_BYPASS === 'true';
 
+// ── Firebase project configuration ───────────────────────────────────────────
+// Public SDK config — not a secret. Firebase access is controlled by
+// Security Rules, not by keeping this object private.
+
+const firebaseConfig = {
+  apiKey:            'AIzaSyCZHpEPex2OoN7X4MPmMh0Vx8q4TpsaBeo',
+  authDomain:        'fastassist-62976.firebaseapp.com',
+  projectId:         'fastassist-62976',
+  storageBucket:     'fastassist-62976.firebasestorage.app',
+  messagingSenderId: '566469349570',
+  appId:             '1:566469349570:web:b7ec2dadcfb25ef38e6b5b',
+  measurementId:     'G-N7H2DE7PYF',
+};
+
 // ── Conditional initialisation ────────────────────────────────────────────────
 
 let _app: FirebaseApp | null  = null;
 let _auth: Auth | null        = null;
 
 if (!DEV_BYPASS) {
-  const firebaseConfig = {
-    apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId:             import.meta.env.VITE_FIREBASE_APP_ID,
-    measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-  };
-
   // Guard against double-initialisation (e.g. HMR in development)
   _app  = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   _auth = getAuth(_app);

@@ -5,18 +5,12 @@
 #   2. runtime  — nginx Alpine:   serve dist/ with SPA routing + PORT injection
 #
 # Cloud Run usage:
-#   docker build \
-#     --build-arg VITE_FIREBASE_API_KEY=... \
-#     --build-arg VITE_FIREBASE_AUTH_DOMAIN=... \
-#     --build-arg VITE_FIREBASE_PROJECT_ID=... \
-#     --build-arg VITE_FIREBASE_STORAGE_BUCKET=... \
-#     --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=... \
-#     --build-arg VITE_FIREBASE_APP_ID=... \
-#     -t gcr.io/PROJECT_ID/fast-assist-studio .
+#   docker build -t gcr.io/PROJECT_ID/fast-assist-studio .
 #
 #   docker run -p 8080:8080 -e PORT=8080 -e OPENROUTER_API_KEY=... fast-assist-studio
 #
-# Firebase VITE_ variables are inlined at build time by Vite's bundler.
+# Firebase web config is embedded in the frontend bundle at build time —
+# no build arguments required. See src/lib/firebase.ts.
 # OPENROUTER_API_KEY is a runtime-only variable — never a build arg.
 # PORT is injected by Cloud Run at runtime.
 
@@ -32,15 +26,6 @@ RUN npm ci --ignore-scripts
 # Copy source (respects .dockerignore)
 COPY . .
 
-# ── Firebase Authentication (required) ───────────────────────────────────────
-ARG VITE_FIREBASE_API_KEY=""
-ARG VITE_FIREBASE_AUTH_DOMAIN=""
-ARG VITE_FIREBASE_PROJECT_ID=""
-ARG VITE_FIREBASE_STORAGE_BUCKET=""
-ARG VITE_FIREBASE_MESSAGING_SENDER_ID=""
-ARG VITE_FIREBASE_APP_ID=""
-ARG VITE_FIREBASE_MEASUREMENT_ID=""
-
 # ── Application configuration ────────────────────────────────────────────────
 ARG VITE_PROVIDER="hosted"
 ARG VITE_INFERENCE_INTERVAL="1200"
@@ -53,14 +38,7 @@ ARG VITE_DEBUG="false"
 # redundant — but setting it explicitly provides an auditable guarantee.
 ARG VITE_DEV_AUTH_BYPASS="false"
 
-ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
-    VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN \
-    VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID \
-    VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET \
-    VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID \
-    VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID \
-    VITE_FIREBASE_MEASUREMENT_ID=$VITE_FIREBASE_MEASUREMENT_ID \
-    VITE_PROVIDER=$VITE_PROVIDER \
+ENV VITE_PROVIDER=$VITE_PROVIDER \
     VITE_INFERENCE_INTERVAL=$VITE_INFERENCE_INTERVAL \
     VITE_VIDEO_PATH=$VITE_VIDEO_PATH \
     VITE_THEME=$VITE_THEME \
