@@ -87,23 +87,28 @@ export class QwenVLProvider implements InferenceBackend {
   readonly type: BackendType = 'rest';
   readonly label             = 'Qwen2.5-VL (OpenRouter)';
 
-  private readonly apiKey: string;
-
-  constructor() {
-    this.apiKey = import.meta.env.VITE_OPENROUTER_API_KEY ?? '';
-  }
-
   // ── InferenceBackend interface ──────────────────────────────────────────────
 
   async healthCheck(): Promise<boolean> {
-    if (!this.apiKey) {
-      logger.warn('QwenVLProvider', 'VITE_OPENROUTER_API_KEY is not set — hosted AI unavailable');
+    // HEAD probe — the proxy returns 200 when OPENROUTER_API_KEY is set,
+    // 503 when absent. Any other outcome (network error, 404, etc.) means
+    // the proxy is not mounted or the server is unreachable.
+    try {
+      const res = await fetch(PROXY_URL, { method: 'HEAD' });
+      if (res.status === 200) {
+        logger.info('QwenVLProvider', `Proxy key present — provider ready (primary model: ${MODELS[0]})`);
+        return true;
+      }
+      if (res.status === 503) {
+        logger.warn('QwenVLProvider', 'Proxy returned 503 — OPENROUTER_API_KEY is not set on the server');
+        return false;
+      }
+      logger.warn('QwenVLProvider', `Proxy health check returned unexpected status ${res.status} — treating as unavailable`);
+      return false;
+    } catch (err) {
+      logger.warn('QwenVLProvider', 'Proxy unreachable during health check', err);
       return false;
     }
-    // Key-presence check only — calling the API just to health-check would
-    // burn quota and add ~1–2 s latency on every init.
-    logger.info('QwenVLProvider', `API key present — provider ready (primary model: ${MODELS[0]})`);
-    return true;
   }
 
   /**
@@ -129,10 +134,6 @@ export class QwenVLProvider implements InferenceBackend {
     frameDataUrl: string,
     options: CallOptions = {},
   ): Promise<FullInferenceResult> {
-    if (!this.apiKey) {
-      throw new Error('VITE_OPENROUTER_API_KEY is not configured — cannot call hosted AI');
-    }
-
     const maxAttempts = options.maxAttempts ?? 2;
     let lastError: unknown;
 
@@ -200,14 +201,11 @@ export class QwenVLProvider implements InferenceBackend {
     externalSignal?.addEventListener('abort', () => controller.abort(externalSignal.reason), { once: true });
 
     try {
-      const response = await fetch(OPENROUTER_URL, {
+      const response = await fetch(PROXY_URL, {
         method:  'POST',
         signal:  controller.signal,
         headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-          'HTTP-Referer':  typeof window !== 'undefined' ? window.location.origin : 'https://fast-assist.app',
-          'X-Title':       'FAST-Assist Studio',
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           model,

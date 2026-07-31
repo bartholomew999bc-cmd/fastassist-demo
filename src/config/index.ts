@@ -5,13 +5,15 @@
  * No hardcoded values in components or services.
  *
  * Environment variables (VITE_ prefix, set at build time):
- *   VITE_OPENROUTER_API_KEY  — OpenRouter API key; absent → Mock Mode
  *   VITE_PROVIDER            — Default provider: 'hosted' | 'mock'
  *   VITE_INFERENCE_ENDPOINT  — REST endpoint URL (RESTBackend only)
  *   VITE_INFERENCE_INTERVAL  — Frame capture interval in ms
  *   VITE_VIDEO_PATH          — Path to demo video in /public
  *   VITE_THEME               — Default theme: 'dark' | 'light'
  *   VITE_DEBUG               — Enable verbose logging: 'true' | 'false'
+ *
+ * Server-side only (never compiled into the frontend):
+ *   OPENROUTER_API_KEY       — OpenRouter secret key; injected by the /api/inference proxy.
  *
  * See .env.example for full documentation.
  */
@@ -56,16 +58,9 @@ export interface AppConfig {
    */
   confirmQualityThreshold: number;
 
-  /**
-   * True when VITE_OPENROUTER_API_KEY is present at build time.
-   * Used to show a subtle "No API key" indicator in the UI.
-   * Never exposes the key value itself.
-   */
-  hasHostedAI: boolean;
 }
 
 const _provider: ProviderType = (import.meta.env.VITE_PROVIDER as ProviderType) ?? 'hosted';
-const _apiKey: string          = import.meta.env.VITE_OPENROUTER_API_KEY ?? '';
 
 export const config: AppConfig = {
   defaultProvider:   _provider,
@@ -86,8 +81,6 @@ export const config: AppConfig = {
   confirmConfidenceThreshold: 0.85,
   confirmQualityThreshold:    0.75,
 
-  // Presence-only check — never expose the key value
-  hasHostedAI: _apiKey.length > 0,
 };
 
 /** Application version — kept in sync with package.json */

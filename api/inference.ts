@@ -41,13 +41,27 @@ export async function inferenceHandler(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
+  const apiKey = process.env.OPENROUTER_API_KEY ?? ''
+
+  // HEAD — lightweight health probe used by QwenVLProvider.healthCheck().
+  // Returns 200 when the key is present, 503 when absent.
+  // This lets the client distinguish "proxy not mounted" from "key not set".
+  if (req.method === 'HEAD') {
+    if (apiKey) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+    } else {
+      res.writeHead(503, { 'Content-Type': 'application/json' })
+    }
+    res.end()
+    return
+  }
+
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'Method not allowed' }))
     return
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY ?? ''
   if (!apiKey) {
     res.writeHead(503, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'OPENROUTER_API_KEY is not configured on the server' }))

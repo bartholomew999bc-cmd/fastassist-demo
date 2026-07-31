@@ -12,8 +12,8 @@
  * detected as reachable again, a recovery notice appears in the dropdown
  * so the operator can make an informed decision to switch back.
  *
- * When VITE_OPENROUTER_API_KEY is absent, Hosted AI shows a subtle indicator
- * so operators understand why it is unavailable at this build.
+ * When the server-side OPENROUTER_API_KEY is absent, the proxy returns 503 and
+ * Hosted AI shows a subtle indicator so operators know it is unavailable.
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -21,7 +21,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RiArrowDownSLine, RiCheckLine, RiErrorWarningLine } from 'react-icons/ri';
 import { useAppStore } from '@/state/store';
 import { PROVIDER_REGISTRY, connectionColor } from '@/services/ProviderRegistry';
-import { config } from '@/config';
 
 const DOT_COLOR: Record<string, string> = {
   teal:    'bg-teal-400',
@@ -104,7 +103,10 @@ export function ProviderSelector() {
             {PROVIDER_REGISTRY.map(descriptor => {
               const isActive      = descriptor.type === selectedProvider;
               const isHosted      = descriptor.type === 'hosted';
-              const noKey         = isHosted && !config.hasHostedAI;
+              // Show the "no key" indicator when the proxy health check failed —
+              // connection status 'fallback' means healthCheck() returned false
+              // (proxy returned 503: OPENROUTER_API_KEY not set on the server).
+              const noKey         = isHosted && connectionStatus === 'fallback';
 
               return (
                 <button
@@ -139,7 +141,7 @@ export function ProviderSelector() {
                         <RiErrorWarningLine
                           size={11}
                           className="text-amber-400/60 flex-shrink-0"
-                          title="VITE_OPENROUTER_API_KEY is not set — will use Mock Mode"
+                          title="OPENROUTER_API_KEY is not set on the server — will use Mock Mode"
                         />
                       )}
                     </div>

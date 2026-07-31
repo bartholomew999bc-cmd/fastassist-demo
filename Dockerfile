@@ -12,14 +12,13 @@
 #     --build-arg VITE_FIREBASE_STORAGE_BUCKET=... \
 #     --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID=... \
 #     --build-arg VITE_FIREBASE_APP_ID=... \
-#     --build-arg VITE_OPENROUTER_API_KEY=... \
 #     -t gcr.io/PROJECT_ID/fast-assist-studio .
 #
-#   docker run -p 8080:8080 -e PORT=8080 fast-assist-studio
+#   docker run -p 8080:8080 -e PORT=8080 -e OPENROUTER_API_KEY=... fast-assist-studio
 #
-# All VITE_ variables are inlined at build time by Vite's bundler.
-# They are NOT available as runtime env vars inside the container.
-# PORT is the only runtime environment variable — injected by Cloud Run.
+# Firebase VITE_ variables are inlined at build time by Vite's bundler.
+# OPENROUTER_API_KEY is a runtime-only variable — never a build arg.
+# PORT is injected by Cloud Run at runtime.
 
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
@@ -42,9 +41,6 @@ ARG VITE_FIREBASE_MESSAGING_SENDER_ID=""
 ARG VITE_FIREBASE_APP_ID=""
 ARG VITE_FIREBASE_MEASUREMENT_ID=""
 
-# ── AI Inference ─────────────────────────────────────────────────────────────
-ARG VITE_OPENROUTER_API_KEY=""
-
 # ── Application configuration ────────────────────────────────────────────────
 ARG VITE_PROVIDER="hosted"
 ARG VITE_INFERENCE_INTERVAL="1200"
@@ -64,7 +60,6 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
     VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID \
     VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID \
     VITE_FIREBASE_MEASUREMENT_ID=$VITE_FIREBASE_MEASUREMENT_ID \
-    VITE_OPENROUTER_API_KEY=$VITE_OPENROUTER_API_KEY \
     VITE_PROVIDER=$VITE_PROVIDER \
     VITE_INFERENCE_INTERVAL=$VITE_INFERENCE_INTERVAL \
     VITE_VIDEO_PATH=$VITE_VIDEO_PATH \
@@ -74,12 +69,20 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
 
 RUN npm run build
 
+# ── Bundle the inference proxy server ─────────────────────────────────────────
+# Produces a self-contained CJS bundle (no node_modules needed at runtime).
+RUN node_modules/.bin/esbuild api/server.ts \
+      --bundle \
+      --platform=node \
+      --format=cjs \
+      --outfile=dist-proxy.cjs
+
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runtime
 
-# Install envsubst (provided by gettext) for PORT substitution at startup.
-# wget is already in the base image for health checks.
-RUN apk add --no-cache gettext
+# Install envsubst (gettext) for PORT substitution, and Node.js to run the
+# inference proxy server. nodejs is ~10 MB on Alpine — keeps the image lean.
+RUN apk add --no-cache gettext nodejs
 
 # Remove default nginx content and config
 RUN rm -rf /usr/share/nginx/html/* \
@@ -87,6 +90,9 @@ RUN rm -rf /usr/share/nginx/html/* \
 
 # Copy built static assets from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copy the bundled inference proxy (served by Node.js on 127.0.0.1:9001)
+COPY --from=builder /app/dist-proxy.cjs /app/dist-proxy.cjs
 
 # Copy nginx config template (${PORT} is substituted at startup)
 COPY nginx.template.conf /etc/nginx/templates/default.conf.template

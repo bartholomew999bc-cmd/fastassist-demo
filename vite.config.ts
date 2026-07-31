@@ -1,11 +1,27 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 import { inferenceHandler } from './api/inference'
 
+/** Vite plugin: mount the OpenRouter proxy at /api/inference in dev mode. */
+function inferenceProxyPlugin(): Plugin {
+  return {
+    name: 'inference-proxy',
+    configureServer(server) {
+      server.middlewares.use('/api/inference', (req, res, next) => {
+        inferenceHandler(req as import('node:http').IncomingMessage, res as import('node:http').ServerResponse)
+          .catch(next)
+      })
+    },
+  }
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    inferenceProxyPlugin(),
+    react(),
+  ],
 
   resolve: {
     alias: {
@@ -17,14 +33,6 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5000,
     allowedHosts: true,
-    // Serve the secure OpenRouter proxy in dev — browser calls /api/inference,
-    // Vite middleware injects the server-side OPENROUTER_API_KEY and forwards upstream.
-    // The API key never appears in the browser or compiled frontend assets.
-    configureServer(server) {
-      server.middlewares.use('/api/inference', (req, res, next) => {
-        inferenceHandler(req, res).catch(next)
-      })
-    },
   },
 
   preview: {
