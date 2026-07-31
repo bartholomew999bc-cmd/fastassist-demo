@@ -1,0 +1,157 @@
+Continue Deployment Preparation — Fix Firebase Configuration Usage and Optimize Docker
+
+Context
+
+The repository has already been updated.
+
+The OpenRouter proxy has been implemented.
+
+The Docker image has been modernized.
+
+Firebase Authentication is already integrated.
+
+During verification, it was discovered that:
+
+- the Firebase configuration already exists in the repository;
+- however, parts of the application are not reading the existing configuration correctly.
+
+Do not restart the Firebase integration.
+
+Do not duplicate configuration.
+
+Do not redesign the authentication system.
+
+Continue from the current repository state.
+
+---
+
+Objective
+
+Finish deployment preparation by:
+
+1. Restoring the application's use of the existing Firebase configuration.
+2. Removing any remaining redundant Firebase environment-variable plumbing.
+3. Optimizing the Docker image for production.
+
+No architectural refactoring.
+
+No UI changes.
+
+No authentication redesign.
+
+---
+
+Firebase
+
+Locate the existing Firebase configuration.
+
+Use it as the single source of truth.
+
+Update any remaining code that still attempts to read:
+
+VITE_FIREBASE_*
+
+when the configuration already exists in the repository.
+
+Do not duplicate configuration.
+
+Do not create another firebase.ts.
+
+Do not move files unless absolutely necessary.
+
+Analytics should continue to initialize only in the browser.
+
+---
+
+Docker Optimization
+
+The Docker image should be as simple as possible.
+
+Since Firebase configuration is already part of the application:
+
+Remove any unnecessary Docker build arguments related to Firebase.
+
+The only runtime secret should be:
+
+OPENROUTER_API_KEY
+
+Ensure the image:
+
+- uses the existing multi-stage build
+- keeps nginx serving the SPA
+- keeps the Node inference proxy
+- contains no unnecessary build arguments
+- contains no unnecessary environment variables
+- remains compatible with Cloud Run
+
+Do not redesign the container.
+
+Only simplify it.
+
+---
+
+Deployment
+
+Verify the application is ready for Cloud Run.
+
+Requirements:
+
+- production build succeeds
+- Docker build succeeds
+- Node proxy starts correctly
+- nginx starts correctly
+- Firebase Authentication works
+- development authentication bypass still works
+- OpenRouter proxy still works
+
+---
+
+Validation
+
+Confirm:
+
+✓ Login page loads.
+
+✓ Firebase Authentication works.
+
+✓ Existing Firebase configuration is actually being used.
+
+✓ Development bypass still functions.
+
+✓ Studio loads correctly.
+
+✓ Analyze still works.
+
+✓ Requests go only to:
+
+/api/inference
+
+✓ Browser never contacts OpenRouter directly.
+
+✓ Browser never exposes the API key.
+
+---
+
+Working Style
+
+Do not re-analyze the repository.
+
+Do not redesign the architecture.
+
+Do not perform unrelated cleanup.
+
+Only fix the remaining Firebase configuration issue and simplify the Dockerfile where appropriate.
+
+---
+
+Deliverables
+
+Return only:
+
+- Files modified
+- Root cause of the Firebase configuration issue
+- Docker optimizations made
+- Build result
+- Docker build result
+- Manual verification results
+- Confirmation that the application is production-ready for deployment to Google Cloud Run
