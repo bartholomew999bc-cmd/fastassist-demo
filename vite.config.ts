@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
+import { inferenceHandler } from './api/inference'
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -16,6 +17,14 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5000,
     allowedHosts: true,
+    // Serve the secure OpenRouter proxy in dev — browser calls /api/inference,
+    // Vite middleware injects the server-side OPENROUTER_API_KEY and forwards upstream.
+    // The API key never appears in the browser or compiled frontend assets.
+    configureServer(server) {
+      server.middlewares.use('/api/inference', (req, res, next) => {
+        inferenceHandler(req, res).catch(next)
+      })
+    },
   },
 
   preview: {

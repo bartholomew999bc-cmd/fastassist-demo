@@ -1,0 +1,244 @@
+FAST-Assist Studio — Add a Minimal Secure OpenRouter Proxy
+
+Objective
+
+Remove the OpenRouter API key from the frontend without changing the application's architecture.
+
+This is not a backend migration.
+
+This is not a full-stack refactor.
+
+This is not a rewrite.
+
+The application must continue to behave exactly as it does today.
+
+---
+
+Critical Constraint
+
+This is an additive change.
+
+Do not redesign the project.
+
+Do not split the repository.
+
+Do not create a separate backend application.
+
+Do not migrate to Express unless the project already uses Express.
+
+Do not introduce new frameworks.
+
+Do not rewrite package scripts.
+
+Do not modify unrelated files.
+
+The only goal is to stop exposing the OpenRouter API key in the browser.
+
+---
+
+Existing Application
+
+Preserve:
+
+- Studio
+- Timeline
+- Playback
+- Demo video
+- Probe Guidance
+- Confidence Gating
+- Firebase Authentication
+- AI workflow
+- UI
+- Existing inference pipeline
+- Existing response parsing
+
+Nothing about the user experience should change.
+
+---
+
+Required Change
+
+Today:
+
+Browser
+        │
+        ▼
+OpenRouter
+
+Target:
+
+Browser
+        │
+        ▼
+/api/inference
+        │
+        ▼
+OpenRouter
+
+The browser must never contact OpenRouter directly.
+
+---
+
+Scope
+
+Limit the implementation to the minimum possible number of files.
+
+Expected scope is approximately:
+
+NEW
+
+api/inference.(ts|js)
+
+MODIFIED
+
+QwenVLProvider
+vite.config.ts
+Dockerfile
+.env.example
+DEPLOY.md
+
+Do not modify additional files unless absolutely required.
+
+---
+
+Proxy Endpoint
+
+Implement:
+
+POST /api/inference
+
+Responsibilities:
+
+- receive inference request
+- validate payload
+- call OpenRouter
+- return response unchanged
+- preserve HTTP status codes
+
+The endpoint should contain as little logic as possible.
+
+It is only a secure proxy.
+
+---
+
+API Key
+
+Remove all usage of:
+
+VITE_OPENROUTER_API_KEY
+
+Replace with:
+
+OPENROUTER_API_KEY
+
+The key must:
+
+- exist only on the server
+- be read at runtime
+- never be compiled into the frontend
+- never be logged
+- never appear in browser DevTools
+
+---
+
+Frontend
+
+Modify only the network destination.
+
+Instead of:
+
+https://openrouter.ai/...
+
+call:
+
+/api/inference
+
+Do not change:
+
+- request structure
+- response parsing
+- inference logic
+- metadata adapters
+- UI
+
+---
+
+Development
+
+Use Vite proxy so development continues to work.
+
+Example:
+
+Browser
+
+↓
+
+localhost:5173
+
+↓
+
+/api/inference
+
+↓
+
+localhost backend
+
+↓
+
+OpenRouter
+
+---
+
+Production
+
+Cloud Run should inject:
+
+OPENROUTER_API_KEY
+
+as a runtime environment variable.
+
+The Docker image must not require rebuilding when the key changes.
+
+---
+
+Docker
+
+Only make the minimum Docker changes required to expose the new API endpoint.
+
+Do not redesign the production container.
+
+Do not replace nginx unless absolutely necessary.
+
+If the current Dockerfile can support the proxy with a minimal change, prefer that approach.
+
+---
+
+Validation
+
+Verify:
+
+✓ Existing UI unchanged
+
+✓ Existing inference unchanged
+
+✓ Browser no longer contacts OpenRouter
+
+✓ Browser never contains API key
+
+✓ Runtime key rotation works
+
+✓ Production build succeeds
+
+---
+
+Deliverables
+
+Return:
+
+- Files added
+- Files modified
+- Why each file changed
+- Build output
+- Confirmation that no unnecessary architectural refactoring was performed
+
+If you find yourself creating a new backend framework, multiple new package dependencies, a separate server project, or modifying more than six files, stop and explain why before proceeding.

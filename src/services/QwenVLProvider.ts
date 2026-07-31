@@ -6,8 +6,9 @@
  * richer inferFull() (returns FullInferenceResult with telemetry + raw output)
  * for the Inspector panel.
  *
- * API key: VITE_OPENROUTER_API_KEY (Replit Secret, build-time env var).
- * healthCheck() returns false when the key is absent — no API quota consumed.
+ * API key: OPENROUTER_API_KEY (server-side only — never compiled into the frontend).
+ * Requests are routed through /api/inference; the proxy injects the key.
+ * healthCheck() makes a lightweight OPTIONS ping to confirm the proxy is reachable.
  *
  * Reliability guarantees:
  *   - 25 s hard timeout via AbortController
@@ -28,7 +29,8 @@ import { logger }                                               from '@/utils/lo
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+/** All inference requests go through the server-side proxy — never directly to OpenRouter. */
+const PROXY_URL = '/api/inference';
 
 /**
  * Model priority list — tried in order; falls back on model-not-available errors.
