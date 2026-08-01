@@ -21,7 +21,7 @@ WORKDIR /app
 
 # Install dependencies (layer cached unless lockfile changes)
 COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts --include=dev
+RUN NODE_ENV= npm ci --ignore-scripts --include=dev
 
 # Copy source (respects .dockerignore)
 COPY . .
