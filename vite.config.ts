@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
-import { inferenceHandler } from './api/inference'
+import { inferenceHandler } from './api/inference.ts'
 
 /** Vite plugin: mount the OpenRouter proxy at /api/inference in dev mode. */
 function inferenceProxyPlugin(): Plugin {
