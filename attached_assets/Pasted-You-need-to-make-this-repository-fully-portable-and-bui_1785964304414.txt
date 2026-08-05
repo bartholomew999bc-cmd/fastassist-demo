@@ -1,0 +1,66 @@
+You need to make this repository fully portable and buildable on Google Cloud Build / Cloud Run without any Replit-specific infrastructure.
+
+Primary Objective
+
+Eliminate all dependency on Replit's internal npm registry (package-firewall.replit.local) and produce a clean, portable package-lock.json that works with the public npm registry.
+
+Tasks
+Inspect the repository for any Replit-specific npm configuration, including but not limited to:
+.npmrc
+.yarnrc
+.yarnrc.yml
+package.json
+Replit configuration files
+shell scripts
+build scripts
+environment variable usage
+Detect any usage of:
+package-firewall.replit.local
+NPM_CONFIG_REGISTRY
+npm_config_registry
+YARN_REGISTRY
+YARN_NPM_REGISTRY_SERVER
+any other registry override.
+Remove every project-level registry override that points to Replit.
+Ensure the project uses the standard npm registry:
+https://registry.npmjs.org/
+Before generating dependencies, explicitly clear any inherited registry overrides for the current process.
+Delete:
+node_modules
+package-lock.json
+Regenerate dependencies from the public npm registry only.
+Produce a completely new package-lock.json containing no references whatsoever to:
+package-firewall.replit.local
+replit.local
+internal registries
+private mirrors
+Verify by searching the generated lockfile.
+
+If any occurrence exists, treat it as a failure and regenerate.
+
+Ensure every required build dependency is explicitly declared in package.json.
+
+In particular verify:
+
+typescript
+vite
+esbuild
+
+Do not rely on transitive dependencies.
+
+Verify the application builds successfully using:
+npm ci
+npm run build
+Verify that the resulting repository is compatible with Docker and Google Cloud Build.
+Deliverables
+
+When complete, provide:
+
+Summary of every change made
+Any files modified
+Confirmation that package-lock.json contains zero references to Replit registries
+Confirmation that a clean npm ci succeeds
+Confirmation that npm run build succeeds
+Any remaining issues that could affect Cloud Run deployment
+
+If Replit prevents generation of a portable lockfile because registry environment variables are enforced by the platform, explicitly report that limitation instead of silently generating another lockfile that references package-firewall.replit.local.
