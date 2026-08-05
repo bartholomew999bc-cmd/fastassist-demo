@@ -1,9 +1,11 @@
 steps:
-  # Build the Docker image
+  # Build the Docker image (no cache)
   - name: gcr.io/cloud-builders/docker
     id: Build
     args:
       - build
+      - --no-cache
+      - --progress=plain
       - -t
       - asia-south1-docker.pkg.dev/$PROJECT_ID/fastassist/fast-assist-studio:$COMMIT_SHA
       - -t
