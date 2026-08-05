@@ -15,14 +15,16 @@
 # PORT is injected by Cloud Run at runtime.
 
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
-FROM FROM node:20-bookworm-slim AS builder
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
 # Install dependencies (layer cached unless lockfile changes)
 COPY package.json package-lock.json ./
-RUN NODE_ENV= npm ci --ignore-scripts --include=dev
-
+RUN npm ci --include=dev && \
+    echo "=== Installed binaries ===" && \
+    ls -la node_modules/.bin && \
+    test -f node_modules/.bin/tsc
 # Copy source (respects .dockerignore)
 COPY . .
 
