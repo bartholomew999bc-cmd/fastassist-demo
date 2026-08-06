@@ -16,6 +16,21 @@
 import { createServer } from 'node:http'
 import { inferenceHandler } from './inference'
 
+console.log(
+  '[startup] OPENROUTER_API_KEY present:',
+  !!process.env.OPENROUTER_API_KEY
+);
+
+console.log(
+  '[startup] OPENROUTER_API_KEY length:',
+  process.env.OPENROUTER_API_KEY?.length ?? 0
+);
+
+console.log(
+  '[startup] OPEN env vars:',
+  Object.keys(process.env).filter(k => k.includes('OPEN'))
+);
+
 const PORT = Number(process.env.PROXY_PORT ?? '9001')
 
 const server = createServer(async (req, res) => {
