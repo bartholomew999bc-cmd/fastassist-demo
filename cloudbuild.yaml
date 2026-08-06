@@ -39,7 +39,7 @@ steps:
       - --platform=managed
       - --allow-unauthenticated
       - --port=8080
-      - --set-env-vars=OPENROUTER_API_KEY=${_OPENROUTER_API_KEY}
+      - --update-secrets=OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest
 
 images:
   - asia-south1-docker.pkg.dev/$PROJECT_ID/fastassist/fast-assist-studio:$COMMIT_SHA
