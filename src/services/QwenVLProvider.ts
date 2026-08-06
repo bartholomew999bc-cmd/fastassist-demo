@@ -26,11 +26,32 @@ import type { InferenceBackend, InferenceResult, BackendType } from '@/types';
 import type { FullInferenceResult, InferenceTelemetry }        from '@/types/inference';
 import { parseQwenResponse }                                    from './adapters/QwenMetadataAdapter';
 import { logger }                                               from '@/utils/logger';
+import { auth }                                                 from '@/lib/firebase';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** All inference requests go through the server-side proxy — never directly to OpenRouter. */
 const PROXY_URL = '/api/inference';
+
+// ─── Token helper ─────────────────────────────────────────────────────────────
+
+/**
+ * Returns the current Firebase ID token, refreshing it automatically when
+ * it is within Firebase's refresh window (~5 min before expiry).
+ * Returns null when Firebase is not initialised (dev-bypass mode) or no user
+ * is signed in — in that case the proxy request is sent without a token and
+ * the backend will reject it if auth is enforced.
+ */
+async function getFirebaseIdToken(): Promise<string | null> {
+  try {
+    const user = auth?.currentUser;
+    if (!user) return null;
+    // false = use cached token, refresh automatically only when needed.
+    return await user.getIdToken(false);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Model priority list — tried in order; falls back on model-not-available errors.
@@ -94,7 +115,11 @@ export class QwenVLProvider implements InferenceBackend {
     // 503 when absent. Any other outcome (network error, 404, etc.) means
     // the proxy is not mounted or the server is unreachable.
     try {
-      const res = await fetch(PROXY_URL, { method: 'HEAD' });
+      const token   = await getFirebaseIdToken();
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(PROXY_URL, { method: 'HEAD', headers });
       if (res.status === 200) {
         logger.info('QwenVLProvider', `Proxy key present — provider ready (primary model: ${MODELS[0]})`);
         return true;
@@ -201,12 +226,17 @@ export class QwenVLProvider implements InferenceBackend {
     externalSignal?.addEventListener('abort', () => controller.abort(externalSignal.reason), { once: true });
 
     try {
+      const token   = await getFirebaseIdToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        logger.debug('QwenVLProvider', 'Inference request authorised — token attached');
+      }
+
       const response = await fetch(PROXY_URL, {
         method:  'POST',
         signal:  controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           model,
           max_tokens:  600,

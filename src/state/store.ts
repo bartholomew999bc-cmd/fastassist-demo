@@ -15,6 +15,7 @@ import type {
   ExamSessionStep,
   ConfirmedView,
   ProviderType,
+  UserRole,
 } from '@/types';
 import { config } from '@/config';
 import { ema } from '@/utils/smoothing';
@@ -25,6 +26,8 @@ import {
 } from '@/exam/sessionMeta';
 
 interface AppActions {
+  /** Store the authorized user's role (set by AuthProvider after Firestore check). */
+  setUserRole(role: UserRole | null): void;
   setResult(result: InferenceResult, latencyMs: number): void;
   setConnectionStatus(status: ConnectionStatus): void;
   setMockMode(isMock: boolean): void;
@@ -95,6 +98,9 @@ const DEFAULT_METRICS: PerformanceMetrics = {
 export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   // ── Initial State ──────────────────────────────────────────────────────────
 
+  // Authorization
+  userRole: null,
+
   // Provider
   selectedProvider:  config.defaultProvider,
   hostedAvailable:   false,
@@ -128,6 +134,10 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   // Developer inspector — closed by default
   inspectorOpen: false,
+
+  // ── Authorization Actions ──────────────────────────────────────────────────
+
+  setUserRole(role) { set({ userRole: role }); },
 
   // ── Inference Actions ──────────────────────────────────────────────────────
 
@@ -263,3 +273,4 @@ export const selectFrozenResult     = (s: AppState) => s.frozenResult;
 export const selectConfirmedViews   = (s: AppState) => s.confirmedViews;
 export const selectSelectedProvider = (s: AppState) => s.selectedProvider;
 export const selectHostedAvailable  = (s: AppState) => s.hostedAvailable;
+export const selectUserRole         = (s: AppState) => s.userRole;

@@ -1,26 +1,28 @@
 /**
- * FAST-Assist Studio — Authentication Provider
+ * FAST-Assist Studio — Authentication + Authorization Provider
  *
- * Provides authentication state to the entire application via React context.
- * Listens to Firebase Auth state changes and exposes:
- *   - user      — the currently signed-in Firebase User, or null
- *   - loading   — true while the initial auth state is being resolved
- *   - signInWithGoogle — initiates Google Sign-In via popup
- *   - signOut   — signs the user out
- *   - error     — last authentication error message, or null
+ * Provides authentication AND authorization state to the entire application.
+ * Implements a two-phase check:
  *
- * Additional providers (Email/Password, Microsoft, etc.) can be added here
- * by importing the relevant provider from 'firebase/auth' and exposing a new
- * sign-in method without touching any other file.
+ *   Phase 1 — Authentication  : Firebase resolves the persisted Google session.
+ *   Phase 2 — Authorization   : Firestore `authorized_users/{uid}` is fetched.
+ *                                The user must exist and have `enabled == true`.
+ *                                If not, they are signed out immediately.
+ *
+ * The `authStatus` field drives the state machine consumed by ProtectedRoute:
+ *   checking-auth          → Firebase resolving persisted session
+ *   checking-authorization → Firebase user found; querying Firestore allowlist
+ *   authorized             → User is on the allowlist and enabled
+ *   unauthenticated        → No Firebase user (show login page)
+ *   access-denied          → Authenticated but not allowlisted / disabled
+ *   error                  → Unexpected failure
  *
  * ── Development bypass ───────────────────────────────────────────────────────
- * When BOTH conditions are true at the same time:
+ * When BOTH conditions are true:
  *   1. import.meta.env.DEV === true   (Vite dev server only — never production)
  *   2. VITE_DEV_AUTH_BYPASS === 'true'
- * …the provider immediately presents a mock authenticated user and skips all
- * Firebase calls. Vite replaces import.meta.env.DEV with `false` at build time,
- * so the entire bypass branch is dead-code-eliminated from production bundles
- * even if VITE_DEV_AUTH_BYPASS is accidentally present in the environment.
+ * …the provider immediately presents a mock authorized user with role 'operator'
+ * and skips all Firebase + Firestore calls.
  */
 
 import {
@@ -38,23 +40,22 @@ import {
   signOut as firebaseSignOut,
   AuthError,
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
+import type { UserRole, AuthStatus } from '@/types';
+import { logger } from '@/utils/logger';
+import { useAppStore } from '@/state/store';
 
 // ── Development bypass flag ───────────────────────────────────────────────────
 //
-// This constant is evaluated once at module load time. In production builds
-// import.meta.env.DEV is statically replaced with `false` by Vite, making the
-// entire expression `false && ...` which tree-shakes all bypass code out of the
-// bundle. The VITE_DEV_AUTH_BYPASS variable is therefore unreachable in prod.
+// In production builds import.meta.env.DEV is statically replaced with `false`,
+// making this expression `false && ...` — tree-shaking all bypass code out.
 
 export const DEV_AUTH_BYPASS_ACTIVE: boolean =
   import.meta.env.DEV === true &&
   import.meta.env.VITE_DEV_AUTH_BYPASS === 'true';
 
 // ── Mock dev user ─────────────────────────────────────────────────────────────
-//
-// Satisfies the fields consumed by UserMenu and ProtectedRoute. Only used when
-// DEV_AUTH_BYPASS_ACTIVE is true — never reaches a production bundle.
 
 const DEV_USER = DEV_AUTH_BYPASS_ACTIVE
   ? ({
@@ -71,8 +72,21 @@ const DEV_USER = DEV_AUTH_BYPASS_ACTIVE
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface AuthState {
+  /** The currently signed-in Firebase User, or null. */
   user: User | null;
+  /**
+   * Full auth state machine status.
+   * ProtectedRoute and the loading overlay key off this.
+   */
+  authStatus: AuthStatus;
+  /**
+   * True while any async auth/authz check is in progress.
+   * Convenience alias for authStatus === 'checking-auth' | 'checking-authorization'.
+   */
   loading: boolean;
+  /** Role from the Firestore authorized_users document, null when not authorized. */
+  userRole: UserRole | null;
+  /** Last authentication error message shown to the user, or null. */
   error: string | null;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -117,11 +131,13 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  // In dev-bypass mode, seed state with the mock user immediately so there is
-  // zero loading flash and no Firebase network calls are made.
-  const [user, setUser] = useState<User | null>(DEV_AUTH_BYPASS_ACTIVE ? DEV_USER : null);
-  const [loading, setLoading] = useState(!DEV_AUTH_BYPASS_ACTIVE);
-  const [error, setError] = useState<string | null>(null);
+  // Dev-bypass: seed authorized state immediately, skip all Firebase calls.
+  const [user,       setUser]       = useState<User | null>(DEV_AUTH_BYPASS_ACTIVE ? DEV_USER : null);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(DEV_AUTH_BYPASS_ACTIVE ? 'authorized' : 'checking-auth');
+  const [userRole,   setUserRole]   = useState<UserRole | null>(DEV_AUTH_BYPASS_ACTIVE ? 'operator' : null);
+  const [error,      setError]      = useState<string | null>(null);
+
+  const loading = authStatus === 'checking-auth' || authStatus === 'checking-authorization';
 
   // Subscribe to Firebase auth state — skipped entirely in dev-bypass mode.
   useEffect(() => {
@@ -129,29 +145,77 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     const unsubscribe = onAuthStateChanged(
       auth,
-      (firebaseUser) => {
-        setUser(firebaseUser);
-        setLoading(false);
+      async (firebaseUser) => {
+        if (!firebaseUser) {
+          // No authenticated user — show login page.
+          setUser(null);
+          setUserRole(null);
+          setAuthStatus('unauthenticated');
+          return;
+        }
+
+        // Firebase user found — check the Firestore allowlist.
+        logger.info('Auth', `User authenticated: ${firebaseUser.uid}`);
+        setAuthStatus('checking-authorization');
+
+        try {
+          const docRef  = doc(db, 'authorized_users', firebaseUser.uid);
+          const docSnap = await getDoc(docRef);
+
+          if (!docSnap.exists()) {
+            logger.warn('Auth', `Unknown user attempted access: uid=${firebaseUser.uid} email=${firebaseUser.email}`);
+            // Sign out immediately — do not expose the app to unlisted users.
+            await firebaseSignOut(auth);
+            setUser(null);
+            setUserRole(null);
+            useAppStore.getState().setUserRole(null);
+            setAuthStatus('access-denied');
+            return;
+          }
+
+          const data = docSnap.data();
+
+          if (data.enabled !== true) {
+            logger.warn('Auth', `Disabled user attempted access: uid=${firebaseUser.uid} email=${firebaseUser.email}`);
+            await firebaseSignOut(auth);
+            setUser(null);
+            setUserRole(null);
+            useAppStore.getState().setUserRole(null);
+            setAuthStatus('access-denied');
+            return;
+          }
+
+          const role = data.role as UserRole;
+          logger.info('Auth', `User authorised: uid=${firebaseUser.uid} role=${role}`);
+          setUser(firebaseUser);
+          setUserRole(role);
+          useAppStore.getState().setUserRole(role);
+          setAuthStatus('authorized');
+        } catch (err) {
+          logger.error('Auth', 'Authorization check failed', err);
+          setUser(null);
+          setUserRole(null);
+          setAuthStatus('error');
+          setError('Authorization check failed. Please try again.');
+        }
       },
       (err) => {
-        console.error('[FAST-Assist][Auth] Auth state error:', err);
+        logger.error('Auth', 'Auth state error', err);
         setError(friendlyError(err));
-        setLoading(false);
+        setAuthStatus('error');
       },
     );
+
     return unsubscribe;
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    // No-op in dev-bypass mode — the user is already "signed in".
     if (DEV_AUTH_BYPASS_ACTIVE) return;
-
     setError(null);
     try {
       await signInWithPopup(auth, googleProvider);
+      // onAuthStateChanged fires after sign-in and drives the state machine.
     } catch (err) {
-      // auth/cancelled-popup-request fires when the user opens a second popup
-      // before the first one completes — treat it as a non-error cancellation.
       const code = (err as AuthError).code;
       if (
         code !== 'auth/popup-closed-by-user' &&
@@ -163,12 +227,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const signOut = useCallback(async () => {
-    // No-op in dev-bypass mode — reload to re-enter bypass state if needed.
     if (DEV_AUTH_BYPASS_ACTIVE) return;
-
     setError(null);
     try {
       await firebaseSignOut(auth);
+      // onAuthStateChanged fires → sets unauthenticated.
     } catch (err) {
       setError(friendlyError(err));
     }
@@ -177,7 +240,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const clearError = useCallback(() => setError(null), []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, signInWithGoogle, signOut, clearError }}>
+    <AuthContext.Provider value={{ user, authStatus, loading, userRole, error, signInWithGoogle, signOut, clearError }}>
       {children}
     </AuthContext.Provider>
   );

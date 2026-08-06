@@ -1,7 +1,7 @@
 /**
  * FAST-Assist Studio — Firebase Initialisation
  *
- * Initialises the Firebase App and Authentication service.
+ * Initialises the Firebase App, Authentication, and Firestore services.
  * Analytics is conditionally enabled only in browser environments to avoid
  * SSR / build-time issues.
  *
@@ -20,6 +20,7 @@
 
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
 
 // ── Dev bypass check ──────────────────────────────────────────────────────────
 // Mirrors the check in AuthProvider.tsx. In production builds import.meta.env.DEV
@@ -45,13 +46,15 @@ const firebaseConfig = {
 
 // ── Conditional initialisation ────────────────────────────────────────────────
 
-let _app: FirebaseApp | null  = null;
-let _auth: Auth | null        = null;
+let _app:  FirebaseApp | null = null;
+let _auth: Auth        | null = null;
+let _db:   Firestore   | null = null;
 
 if (!DEV_BYPASS) {
   // Guard against double-initialisation (e.g. HMR in development)
   _app  = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   _auth = getAuth(_app);
+  _db   = getFirestore(_app);
 
   // Analytics: only import in browser environments with a valid measurementId
   // to avoid SSR/SSG build failures.
@@ -67,6 +70,7 @@ if (!DEV_BYPASS) {
 }
 
 // AuthProvider guards every Firebase call behind DEV_AUTH_BYPASS_ACTIVE, so
-// these are never invoked when _auth / _app are null.
+// these are never invoked when _auth / _app / _db are null.
 export const auth = _auth as Auth;
+export const db   = _db   as Firestore;
 export default _app as FirebaseApp;

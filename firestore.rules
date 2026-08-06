@@ -1,0 +1,36 @@
+rules_version = '2';
+
+// FAST-Assist Studio — Firestore Security Rules
+//
+// The authorized_users collection is the source of truth for access control.
+// All reads are restricted to the authenticated user's own document.
+// Writes are restricted to admin service accounts (Firebase Admin SDK) only —
+// clients can never self-authorize.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── authorized_users ──────────────────────────────────────────────────────
+    //
+    // An authenticated user may read their own document to check authorization
+    // status. This is safe: if the document does not exist, getDoc() returns
+    // nothing — the frontend then signs the user out.
+    //
+    // No client may write to this collection. Entries are managed exclusively
+    // by the Firebase Admin SDK (Cloud Run backend / npm run authorize-user).
+
+    match /authorized_users/{uid} {
+      // Allow the authenticated user to read only their own record.
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // No client writes — admin SDK bypasses Security Rules entirely.
+      allow write: if false;
+    }
+
+    // ── All other collections ─────────────────────────────────────────────────
+    // Deny by default — no other collections are used by this application.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

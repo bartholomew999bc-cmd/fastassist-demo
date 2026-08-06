@@ -26,6 +26,32 @@ export interface InferenceResult {
   backend_latency: number; // ms
 }
 
+// ─── Authorization ────────────────────────────────────────────────────────────
+
+/**
+ * Role assigned to an authorised user in Firestore.
+ * Stored in authorized_users/{uid}.role.
+ * Permissions are not yet enforced — role is stored for future use.
+ */
+export type UserRole = 'admin' | 'operator' | 'viewer';
+
+/**
+ * Auth state machine used by AuthProvider and ProtectedRoute.
+ *   checking-auth          — Firebase resolving persisted session
+ *   checking-authorization — Firebase user found; querying Firestore allowlist
+ *   authorized             — User is on the allowlist and enabled
+ *   unauthenticated        — No Firebase user (login page)
+ *   access-denied          — Authenticated but not on allowlist / disabled
+ *   error                  — Unexpected error during auth/authz
+ */
+export type AuthStatus =
+  | 'checking-auth'
+  | 'checking-authorization'
+  | 'authorized'
+  | 'unauthenticated'
+  | 'access-denied'
+  | 'error';
+
 // ─── Inference Providers ──────────────────────────────────────────────────────
 
 /**
@@ -106,6 +132,10 @@ export interface ConfirmedView {
 }
 
 export interface AppState {
+  // ── Authorization ───────────────────────────────────────────────────────────
+  /** Role of the currently signed-in user, null when unauthenticated. */
+  userRole: UserRole | null;
+
   // ── Provider selection ──────────────────────────────────────────────────────
   /** The provider the operator has explicitly selected. */
   selectedProvider: ProviderType;
